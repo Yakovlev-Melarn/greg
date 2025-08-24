@@ -73,7 +73,6 @@ $(function () {
                 datasets: [{
                     label: 'Profit',
                     data: [7, 6, 9, 7, 8, 6, 8, 5, 7, 8, 6, 7, 7],
-                    borderColor: '#6d7cfc',
                     borderColor: gradientStroke,
                     borderWidth: 3,
                     fill: false
@@ -94,7 +93,6 @@ $(function () {
                 datasets: [{
                     label: 'Profit',
                     data: [7, 6, 9, 7, 8, 6, 8, 5, 7, 8, 6, 7, 7],
-                    borderColor: '#6d7cfc',
                     borderColor: gradientStroke,
                     borderWidth: 3,
                     fill: false
