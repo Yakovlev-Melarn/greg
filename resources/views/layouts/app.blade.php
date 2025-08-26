@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="token" content="{{ session()->get('token') }}">
     <meta name="csrf" content="{{ csrf_token() }}">
+    <meta name="sellerId" content="{{ session()->get('seller') }}">
     <title>G.R.E.G.</title>
     <link rel="stylesheet" href="{{ url('/assets/vendors/iconfonts/mdi/css/materialdesignicons.css') }}">
     <link rel="stylesheet" href="{{ url('/assets/css/shared/style.css') }}">
@@ -161,23 +162,8 @@
 <div class="page-body">
     <div class="sidebar">
         <div class="user-profile">
-            <div class="info-wrapper">
-                <ul class="nav ml-auto justify-center">
-                    <li class="nav-item dropdown">
-                        <a href="#" class="user-name nav-link" id="appsDropdown" data-toggle="dropdown"
-                           aria-expanded="false">ООО "РИДИКОН"</a>
-                        <div class="dropdown-menu navbar-dropdown dropdown-menu-right" aria-labelledby="appsDropdown">
-                            <div class="dropdown-body border-top pt-0">
-                                <a href="#" class="dropdown-grid w-100">
-                                    <span class="grid-tittle">ИП "КУЗЬМИН В.В."</span>
-                                </a>
-                                <a href="#" class="dropdown-grid w-100">
-                                    <span class="grid-tittle">ООО "МУЗА"</span>
-                                </a>
-                            </div>
-                        </div>
-                    </li>
-                </ul>
+            <div class="info-wrapper" id="sellersBlock">
+                <x-sellers />
             </div>
         </div>
         <ul class="navigation-menu">
@@ -235,7 +221,6 @@
     </div>
     <div class="page-content-wrapper">
         <div class="page-content-wrapper-inner">
-            @yield('content')
             <div class="content-viewport">
                 <div class="row">
                     <div class="col-md-3 col-sm-6 col-6 equel-grid">
@@ -696,12 +681,17 @@
         </div>
     </div>
 </div>
+<script src={{ url('assets/js/lodash.js') }}></script>
 <script src={{ url('assets/vendors/js/core.js') }}></script>
 <script src={{ url('assets/vendors/apexcharts/apexcharts.min.js') }}></script>
 <script src={{ url('assets/vendors/chartjs/Chart.min.js') }}></script>
 <script src={{ url('assets/js/charts/chartjs.addon.js') }}></script>
 <script src={{ url('assets/js/template.js') }}></script>
 <script src={{ url('assets/js/dashboard.js') }}></script>
+<script src={{ url('assets/js/layouts/ajax.js') }}></script>
+<script src={{ url('assets/js/layouts/modal.js') }}></script>
+<script src={{ url('assets/js/layouts/events.js') }}></script>
+<script src={{ url('assets/js/layouts/init.js') }}></script>
 <script src={{ url('assets/js/layouts/app.js') }}></script>
 @yield('js')
 </body>

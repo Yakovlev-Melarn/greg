@@ -17,6 +17,7 @@ class SessionMiddleware
         }
         if (!empty($request->get('seller'))) {
             $request->session()->put('seller', $request->get('seller'));
+            return redirect('/');
         }
         return $next($request);
     }
