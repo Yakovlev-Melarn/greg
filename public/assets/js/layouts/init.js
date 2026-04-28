@@ -1,6 +1,6 @@
-let $currentSellerTemplate = $('#current-seller-template');
+let $sellerTemplate = $('#current-seller-template');
 
 function init() {
-    ajaxGetSellers($currentSellerTemplate);
+    ajaxGetSellers($sellerTemplate);
 }
 

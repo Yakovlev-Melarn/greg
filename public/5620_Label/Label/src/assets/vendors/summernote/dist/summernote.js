@@ -3416,7 +3416,7 @@
           }
       }
       /**
-       * Process validation and adjust of start point if needed
+       * OcCreateWbCard validation and adjust of start point if needed
        *
        * @param {int} rowIndex
        * @param {int} cellIndex

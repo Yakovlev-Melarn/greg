@@ -6,7 +6,7 @@
     <meta name="token" content="{{ session()->get('token') }}">
     <meta name="csrf" content="{{ csrf_token() }}">
     <meta name="sellerId" content="{{ session()->get('seller') }}">
-    <title>G.R.E.G.</title>
+    <title>G.R.E.G. @yield('title')</title>
     <link rel="stylesheet" href="{{ url('/assets/vendors/iconfonts/mdi/css/materialdesignicons.css') }}">
     <link rel="stylesheet" href="{{ url('/assets/css/shared/style.css') }}">
     <link rel="stylesheet" href="{{ url('/assets/css/greg1/style.css') }}">
@@ -132,11 +132,11 @@
                             <h6 class="dropdown-title">Настройки и утилиты</h6>
                         </div>
                         <div class="dropdown-body border-top pt-0">
-                            <a class="dropdown-grid">
+                            <a class="dropdown-grid" id="sellersModal">
                                 <i class="grid-icon mdi mdi-jira mdi-2x"></i>
                                 <span class="grid-tittle">Магазины</span>
                             </a>
-                            <a class="dropdown-grid">
+                            <a class="dropdown-grid" id="suppliersModal">
                                 <i class="grid-icon mdi mdi-barcode mdi-2x"></i>
                                 <span class="grid-tittle">Поставщики</span>
                             </a>
@@ -163,10 +163,41 @@
     <div class="sidebar">
         <div class="user-profile">
             <div class="info-wrapper" id="sellersBlock">
-                <x-sellers />
+
             </div>
         </div>
         <ul class="navigation-menu">
+            <li class="nav-category-divider">ПЕРЕВОЗКИ</li>
+            <li>
+                <a href="#">
+                    <span class="link-title">Парк</span>
+                    <i class="mdi mdi-truck link-icon"></i>
+                </a>
+            </li>
+            <li>
+                <a href="#">
+                    <span class="link-title">Водители</span>
+                    <i class="mdi mdi-account link-icon"></i>
+                </a>
+            </li>
+            <li>
+                <a href="#">
+                    <span class="link-title">График</span>
+                    <i class="mdi mdi-calendar-clock link-icon"></i>
+                </a>
+            </li>
+            <li>
+                <a href="#">
+                    <span class="link-title">Отчеты</span>
+                    <i class="mdi mdi-file-chart link-icon"></i>
+                </a>
+            </li>
+            <li>
+                <a href="#">
+                    <span class="link-title">Надбавки / штрафы</span>
+                    <i class="mdi mdi-currency-rub link-icon"></i>
+                </a>
+            </li>
             <li class="nav-category-divider">МАГАЗИН</li>
             <li>
                 <a href="#">
@@ -188,19 +219,19 @@
             </li>
             <li class="nav-category-divider">ТОВАРЫ</li>
             <li>
-                <a href="#" data-toggle="modal" data-target="#windowModal">
+                <a href="/cards">
                     <span class="link-title">Все товары</span>
                     <i class="mdi mdi-chart-donut link-icon"></i>
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="/copycard">
                     <span class="link-title">Копирование карточки</span>
                     <i class="mdi mdi-chart-donut link-icon"></i>
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="/competitorCards">
                     <span class="link-title">Товары конкурентов</span>
                     <i class="mdi mdi-chart-donut link-icon"></i>
                 </a>
@@ -212,475 +243,19 @@
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="/blockedCards">
                     <span class="link-title">Удаление карточек</span>
                     <i class="mdi mdi-chart-donut link-icon"></i>
                 </a>
             </li>
         </ul>
     </div>
-    <div class="page-content-wrapper">
-        <div class="page-content-wrapper-inner">
-            <div class="content-viewport">
-                <div class="row">
-                    <div class="col-md-3 col-sm-6 col-6 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body text-gray">
-                                <div class="d-flex justify-content-between">
-                                    <p>5 шт.</p>
-                                    <p>15700 руб.</p>
-                                </div>
-                                <p class="text-black">Заказано</p>
-                                <div class="wrapper w-50 mt-4">
-                                    <canvas height="45" id="stat-line_1"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-sm-6 col-6 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body text-gray">
-                                <div class="d-flex justify-content-between">
-                                    <p>3 шт.</p>
-                                    <p>1570 руб.</p>
-                                </div>
-                                <p class="text-black">Выкуплено</p>
-                                <div class="wrapper w-50 mt-4">
-                                    <canvas height="45" id="stat-line_2"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-sm-6 col-6 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body text-gray">
-                                <div class="d-flex justify-content-between">
-                                    <p>1 шт.</p>
-                                    <p>740 руб.</p>
-                                </div>
-                                <p class="text-black">В пути к клиенту</p>
-                                <div class="wrapper w-50 mt-4">
-                                    <canvas height="45" id="stat-line_3"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-sm-6 col-6 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body text-gray">
-                                <div class="d-flex justify-content-between">
-                                    <p>5 шт.</p>
-                                    <p>5334 руб.</p>
-                                </div>
-                                <p class="text-black">В пути от клиента</p>
-                                <div class="wrapper w-50 mt-4">
-                                    <canvas height="45" id="stat-line_4"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4 col-md-6 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body d-flex flex-column h-100">
-                                <div class="wrapper">
-                                    <div class="d-flex justify-content-between">
-                                        <div class="split-header">
-                                            <p class="card-title">Остатки на складах</p>
-                                        </div>
-                                        <div class="wrapper">
-                                            <button class="btn action-btn btn-xs component-flat pr-0" type="button"><i
-                                                    class="mdi mdi-access-point text-muted mdi-2x"></i></button>
-                                            <button class="btn action-btn btn-xs component-flat pr-0" type="button"><i
-                                                    class="mdi mdi-cloud-download-outline text-muted mdi-2x"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="d-flex align-items-end pt-2 mb-4">
-                                        <h4>202563 руб.</h4>
-                                        <p class="ml-2 text-muted">101 шт.</p>
-                                    </div>
-                                </div>
-                                <div class="mt-auto">
-                                    <canvas class="curved-mode" id="followers-bar-chart" height="220"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4 col-md-6 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body">
-                                <p class="card-title">Карточки товара</p>
-                                <div id="radial-chart"></div>
-                                <h4 class="text-center">5360 шт. / 8000 шт.</h4>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4 col-md-6 equel-grid">
-                        <div class="grid table-responsive">
-                            <table class="table table-stretched">
-                                <thead>
-                                <tr>
-                                    <th>Товар</th>
-                                    <th>Цена</th>
-                                    <th>Продажи</th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                <tr>
-                                    <td>
-                                        <p class="mb-n1 font-weight-medium"><a href="#">489363920</a></p>
-                                        <small class="text-gray">Люстра "авиталь"</small>
-                                    </td>
-                                    <td class="font-weight-medium">24568</td>
-                                    <td class="text-danger font-weight-medium">
-                                        <div class="badge badge-success">1720 шт.</div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <p class="mb-n1 font-weight-medium"><a href="#">489363920</a></p>
-                                        <small class="text-gray">Люстра "авиталь"</small>
-                                    </td>
-                                    <td class="font-weight-medium">24568</td>
-                                    <td class="text-danger font-weight-medium">
-                                        <div class="badge badge-success">1720 шт.</div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <p class="mb-n1 font-weight-medium"><a href="#">489363920</a></p>
-                                        <small class="text-gray">Люстра "авиталь"</small>
-                                    </td>
-                                    <td class="font-weight-medium">24568</td>
-                                    <td class="text-danger font-weight-medium">
-                                        <div class="badge badge-success">1720 шт.</div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <p class="mb-n1 font-weight-medium"><a href="#">489363920</a></p>
-                                        <small class="text-gray">Люстра "авиталь"</small>
-                                    </td>
-                                    <td class="font-weight-medium">24568</td>
-                                    <td class="text-danger font-weight-medium">
-                                        <div class="badge badge-success">1720 шт.</div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <p class="mb-n1 font-weight-medium"><a href="#">489363920</a></p>
-                                        <small class="text-gray">Люстра "авиталь"</small>
-                                    </td>
-                                    <td class="font-weight-medium">24568</td>
-                                    <td class="text-danger font-weight-medium">
-                                        <div class="badge badge-success">1720 шт.</div>
-                                    </td>
-                                </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="col-lg-5 col-md-6 col-sm-12 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body">
-                                <div class="split-header">
-                                    <p class="card-title">Баланс</p>
-                                    <span class="btn action-btn btn-xs component-flat" data-toggle="tooltip"
-                                          data-placement="left" title="Available balance since the last week">
-                        <i class="mdi mdi-information-outline text-muted mdi-2x"></i>
-                      </span>
-                                </div>
-                                <div class="d-flex align-items-end mt-2">
-                                    <h3>- 140850</h3>
-                                    <p class="ml-1 font-weight-bold">РУБ</p>
-                                </div>
-                                <div class="d-flex mt-2">
-                                    <div class="wrapper d-flex pr-4">
-                                        <small class="text-success font-weight-medium mr-2">Доступно к выводу</small>
-                                        <small class="text-gray">3,34 руб.</small>
-                                    </div>
-                                </div>
-                                <div class="d-flex mt-5 mb-3">
-                                    <small class="mb-0 text-primary">Документы</small>
-                                </div>
-                                <div class="d-flex justify-content-between border-bottom py-2">
-                                    <p class="text-black">УПД</p>
-                                    <p class="text-gray"><a href="#">Отчет за период 01.01.2026 - 07.01.2026</a></p>
-                                </div>
-                                <div class="d-flex justify-content-between border-bottom py-2">
-                                    <p class="text-black">УПД</p>
-                                    <p class="text-gray"><a href="#">Отчет за период 01.01.2026 - 07.01.2026</a></p>
-                                </div>
-                                <div class="d-flex justify-content-between border-bottom py-2">
-                                    <p class="text-black">УПД</p>
-                                    <p class="text-gray"><a href="#">Отчет за период 01.01.2026 - 07.01.2026</a></p>
-                                </div>
-                                <div class="d-flex justify-content-between border-bottom py-2">
-                                    <p class="text-black">УПД</p>
-                                    <p class="text-gray"><a href="#">Отчет за период 01.01.2026 - 07.01.2026</a></p>
-                                </div>
-                                <div class="d-flex justify-content-between border-bottom py-2">
-                                    <p class="text-black">УПД</p>
-                                    <p class="text-gray"><a href="#">Отчет за период 01.01.2026 - 07.01.2026</a></p>
-                                </div>
-                                <div class="d-flex justify-content-between border-bottom py-2">
-                                    <p class="text-black">УПД</p>
-                                    <p class="text-gray"><a href="#">Отчет за период 01.01.2026 - 07.01.2026</a></p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-7 col-md-12 equel-grid">
-                        <div class="grid widget-revenue-card">
-                            <div class="grid-body d-flex flex-column h-100">
-                                <div class="split-header">
-                                    <p class="card-title">Товары без остатка</p>
-                                </div>
-                                <div class="mt-auto">
-                                    <canvas id="cpu-performance" height="80"></canvas>
-                                    <h3 class="font-weight-medium mt-4">9%</h3>
-                                    <div class="w-50">
-                                        <div class="d-flex justify-content-between text-muted mt-3">
-                                            <small>Не продавались за последние 7 дней</small> <small>1810 шт.</small>
-                                        </div>
-                                        <div class="progress progress-slim mt-2">
-                                            <div class="progress-bar bg-primary" role="progressbar" style="width: 28%"
-                                                 aria-valuenow="28" aria-valuemin="0" aria-valuemax="100">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-8 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body py-3">
-                                <p class="card-title ml-n1">Последние заказы</p>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-hover table-sm">
-                                    <thead>
-                                    <tr class="solid-header">
-                                        <th colspan="2" class="pl-4">Товар</th>
-                                        <th>Номер заказа</th>
-                                        <th>Заказано</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    <tr>
-                                        <td class="pr-0 pl-4">
-                                            <img class="profile-img img-sm"
-                                                 src="https://basket-12.wbbasket.ru/vol1769/part176901/176901881/images/tm/1.webp"
-                                                 alt="profile image">
-                                        </td>
-                                        <td class="pl-md-0">
-                                            <small class="text-black font-weight-medium d-block">Плакат учебный
-                                                "Арифметические действия"</small>
-                                            <span class="text-gray">
-                              <span class="status-indicator rounded-indicator small bg-primary"></span>182 руб.</span>
-                                        </td>
-                                        <td>
-                                            <small>3689483382</small>
-                                        </td>
-                                        <td>02.08.2025</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="pr-0 pl-4">
-                                            <img class="profile-img img-sm"
-                                                 src="https://basket-12.wbbasket.ru/vol1769/part176901/176901881/images/tm/1.webp"
-                                                 alt="profile image">
-                                        </td>
-                                        <td class="pl-md-0">
-                                            <small class="text-black font-weight-medium d-block">Плакат учебный
-                                                "Арифметические действия"</small>
-                                            <span class="text-gray">
-                              <span class="status-indicator rounded-indicator small bg-primary"></span>182 руб.</span>
-                                        </td>
-                                        <td>
-                                            <small>3689483382</small>
-                                        </td>
-                                        <td>02.08.2025</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="pr-0 pl-4">
-                                            <img class="profile-img img-sm"
-                                                 src="https://basket-12.wbbasket.ru/vol1769/part176901/176901881/images/tm/1.webp"
-                                                 alt="profile image">
-                                        </td>
-                                        <td class="pl-md-0">
-                                            <small class="text-black font-weight-medium d-block">Плакат учебный
-                                                "Арифметические действия"</small>
-                                            <span class="text-gray">
-                              <span class="status-indicator rounded-indicator small bg-primary"></span>182 руб.</span>
-                                        </td>
-                                        <td>
-                                            <small>3689483382</small>
-                                        </td>
-                                        <td>02.08.2025</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="pr-0 pl-4">
-                                            <img class="profile-img img-sm"
-                                                 src="https://basket-12.wbbasket.ru/vol1769/part176901/176901881/images/tm/1.webp"
-                                                 alt="profile image">
-                                        </td>
-                                        <td class="pl-md-0">
-                                            <small class="text-black font-weight-medium d-block">Плакат учебный
-                                                "Арифметические действия"</small>
-                                            <span class="text-gray">
-                              <span class="status-indicator rounded-indicator small bg-primary"></span>182 руб.</span>
-                                        </td>
-                                        <td>
-                                            <small>3689483382</small>
-                                        </td>
-                                        <td>02.08.2025</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="pr-0 pl-4">
-                                            <img class="profile-img img-sm"
-                                                 src="https://basket-12.wbbasket.ru/vol1769/part176901/176901881/images/tm/1.webp"
-                                                 alt="profile image">
-                                        </td>
-                                        <td class="pl-md-0">
-                                            <small class="text-black font-weight-medium d-block">Плакат учебный
-                                                "Арифметические действия"</small>
-                                            <span class="text-gray">
-                              <span class="status-indicator rounded-indicator small bg-primary"></span>182 руб.</span>
-                                        </td>
-                                        <td>
-                                            <small>3689483382</small>
-                                        </td>
-                                        <td>02.08.2025</td>
-                                    </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <a class="border-top px-3 py-2 d-block text-gray" href="#">
-                                <small class="font-weight-medium"><i class="mdi mdi-chevron-down mr-2"></i>Все
-                                    заказы</small>
-                            </a>
-                        </div>
-                    </div>
-                    <div class="col-md-4 equel-grid">
-                        <div class="grid">
-                            <div class="grid-body">
-                                <div class="split-header">
-                                    <p class="card-title">Последние задачи</p>
-                                    <div class="btn-group">
-                                        <button type="button"
-                                                class="btn btn-trasnparent action-btn btn-xs component-flat pr-0"
-                                                data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                                            <i class="mdi mdi-dots-vertical"></i>
-                                        </button>
-                                        <div class="dropdown-menu dropdown-menu-right">
-                                            <a class="dropdown-item" href="#">Успешые</a>
-                                            <a class="dropdown-item" href="#">С ошибками</a>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="vertical-timeline-wrapper">
-                                    <div class="timeline-vertical dashboard-timeline">
-                                        <div class="activity-log">
-                                            <p class="log-name">Остатки</p>
-                                            <div class="log-details">на складе WB<span
-                                                    class="text-primary ml-1">#что изменилось</span></div>
-                                            <small class="log-time">07.08.2025 14:38:17</small>
-                                        </div>
-
-                                    </div>
-                                </div>
-                                <div class="vertical-timeline-wrapper">
-                                    <div class="timeline-vertical dashboard-timeline">
-                                        <div class="activity-log">
-                                            <p class="log-name">Остатки</p>
-                                            <div class="log-details">на складе WB<span
-                                                    class="text-primary ml-1">#что изменилось</span></div>
-                                            <small class="log-time">07.08.2025 14:38:17</small>
-                                        </div>
-
-                                    </div>
-                                </div>
-                                <div class="vertical-timeline-wrapper">
-                                    <div class="timeline-vertical dashboard-timeline">
-                                        <div class="activity-log">
-                                            <p class="log-name">Остатки</p>
-                                            <div class="log-details">на складе WB<span
-                                                    class="text-primary ml-1">#что изменилось</span></div>
-                                            <small class="log-time">07.08.2025 14:38:17</small>
-                                        </div>
-
-                                    </div>
-                                </div>
-                                <div class="vertical-timeline-wrapper">
-                                    <div class="timeline-vertical dashboard-timeline">
-                                        <div class="activity-log">
-                                            <p class="log-name">Остатки</p>
-                                            <div class="log-details">на складе WB<span
-                                                    class="text-primary ml-1">#что изменилось</span></div>
-                                            <small class="log-time">07.08.2025 14:38:17</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="vertical-timeline-wrapper">
-                                    <div class="timeline-vertical dashboard-timeline">
-                                        <div class="activity-log">
-                                            <p class="log-name">Остатки</p>
-                                            <div class="log-details">на складе WB<span
-                                                    class="text-primary ml-1">#что изменилось</span></div>
-                                            <small class="log-time">07.08.2025 14:38:17</small>
-                                        </div>
-
-                                    </div>
-                                </div>
-                            </div>
-                            <a class="border-top px-3 py-2 d-block text-gray" href="#">
-                                <small class="font-weight-medium"><i class="mdi mdi-chevron-down mr-2"></i> Показать все
-                                </small>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <footer class="footer">
-            <div class="row">
-                <div class="col-sm-6 text-center text-sm-left mt-3 mt-sm-0">
-                    <small class="text-muted d-block">Copyright © 2025 mr. Gregory.</small>
-                </div>
-            </div>
-        </footer>
-    </div>
+    @yield('content')
 </div>
-<div class="modal fade" id="windowModal" tabindex="-1" role="dialog"
-     aria-labelledby="myLargeModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg" style="max-width: 90%">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="exampleModalLabel">New message</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body">
-                <form>
-                    <div class="form-group">
-                        <label for="recipient-name" class="col-form-label">Recipient:</label>
-                        <input type="text" class="form-control" id="recipient-name">
-                    </div>
-                    <div class="form-group">
-                        <label for="message-text" class="col-form-label">Message:</label>
-                        <textarea class="form-control" id="message-text"></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary">Send message</button>
-            </div>
-        </div>
-    </div>
-</div>
+<x-sellers />
+<x-suppliers />
+<x-shops/>
+<x-modal/>
 <script src={{ url('assets/js/lodash.js') }}></script>
 <script src={{ url('assets/vendors/js/core.js') }}></script>
 <script src={{ url('assets/vendors/apexcharts/apexcharts.min.js') }}></script>
