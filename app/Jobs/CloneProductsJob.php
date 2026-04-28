@@ -188,6 +188,9 @@ class CloneProductsJob implements ShouldQueue
             $prefix = $this->data['prefix'] ?? null;
             $this->logInfo("Попытка добавления товара с SKU: {$sku} в очередь");
             $existsInCards = Cards::where('sku', $sku)->exists();
+            $existsInSkuMapping = SkuMapping::where('wbSku', $sku)
+                ->orWhere('origSku', $sku)
+                ->exists();
             if ($this->data['in_stock_only'] && $productData['totalQuantity'] < 5) {
                 $message = "Товар с nmID: {$sku} в количестве меньше минимального, пропуск добавления в очередь";
                 $this->logWarning($message);
@@ -195,6 +198,11 @@ class CloneProductsJob implements ShouldQueue
             }
             if ($existsInCards) {
                 $message = "Товар с nmID: {$sku} уже существует в таблице Cards, пропуск добавления в очередь";
+                $this->logWarning($message);
+                return false;
+            }
+            if ($existsInSkuMapping) {
+                $message = "Товар с SKU: {$sku} уже существует в таблице skuMapping, пропуск добавления в очередь";
                 $this->logWarning($message);
                 return false;
             }
