@@ -303,19 +303,98 @@ class CloneProductsJob implements ShouldQueue
     private function processQueue(CollectionAlias $productsToQueue): void
     {
         $seller = Sellers::find($this->data['seller_id']);
-        foreach ($productsToQueue as $product) {
+        $batchSize = (int)($this->data['batch_size'] ?? 20);
+        $batchSize = max(1, min($batchSize, 100));
+
+        foreach ($productsToQueue->chunk($batchSize) as $productChunk) {
+            if ($this->increment >= $this->data['quantity']) {
+                break;
+            }
+
+            $batchItems = [];
+            $service = null;
+
+            foreach ($productChunk as $product) {
+                if ($this->increment >= $this->data['quantity']) {
+                    break;
+                }
+
+                try {
+                    $this->logInfo("Начинаем обработку продукта SKU: {$product->sku}");
+
+                    if (Cards::where('sku', $product->sku)->exists()) {
+                        $product->delete();
+                        $this->logWarning("Товар ранее был создан: {$product->sku} ");
+                        $this->increment++;
+                        continue;
+                    }
+
+                    $info = WBContent::getCardInfo($product->sku);
+                    $service = new WildberriesService($seller->wb_api_key, [
+                        'prefix' => $product->prefix,
+                        'nmID' => $product->sku,
+                        'package' => 1,
+                        'price' => $product->price
+                    ]);
+
+                    $batchItems[] = [
+                        'product' => $product,
+                        'info' => $info,
+                        'sourceData' => $info,
+                        'sku' => $info['vendor_code'] ?? null,
+                        'queueSku' => $product->sku,
+                    ];
+                    $this->increment++;
+                } catch (\Exception $e) {
+                    $product->blocked = 1;
+                    $product->save();
+                    $this->logError("Критическая ошибка при подготовке продукта {$product->sku}: " . $e->getMessage());
+                    $this->increment++;
+                }
+            }
+
+            if (empty($batchItems) || !$service) {
+                continue;
+            }
+
             try {
-                $this->logInfo("Начинаем обработку продукта SKU: {$product->sku}");
-                $info = WBContent::getCardInfo($product->sku);
-                $service = new WildberriesService($seller->wb_api_key, [
-                    'prefix' => $product->prefix,
-                    'nmID' => $product->sku,
-                    'package' => 1,
-                    'price' => $product->price
-                ]);
-                if (Cards::where('sku', $product->sku)->count() === 0) {
-                    $result = $service->addProductFromSource($info, $info['vendor_code']);
-                    if ($result['success']) {
+                $payload = array_map(static fn($item) => [
+                    'sourceData' => $item['sourceData'],
+                    'sku' => $item['sku'],
+                    'queueSku' => $item['queueSku'],
+                ], $batchItems);
+
+                $result = $service->addProductsFromSourceBatch($payload);
+                $skippedByQueueSku = [];
+                foreach ($result['skipped_items'] ?? [] as $skippedItem) {
+                    $skippedByQueueSku[(string)$skippedItem['queueSku']] = $skippedItem;
+                }
+
+                foreach ($batchItems as $item) {
+                    /** @var ProductQueue $product */
+                    $product = $item['product'];
+                    $queueSku = (string)$product->sku;
+                    if (!isset($skippedByQueueSku[$queueSku])) {
+                        continue;
+                    }
+
+                    $skipError = $skippedByQueueSku[$queueSku]['error'] ?? 'Unknown error';
+                    $this->logWarning(
+                        "Пропуск продукта {$product->sku}: {$skipError}. " .
+                        "Товар не отправлен в WB и удален из очереди без блокировки"
+                    );
+                    $product->delete();
+                }
+
+                if ($result['success']) {
+                    foreach ($batchItems as $item) {
+                        /** @var ProductQueue $product */
+                        $product = $item['product'];
+                        $info = $item['info'];
+                        if (isset($skippedByQueueSku[(string)$product->sku])) {
+                            continue;
+                        }
+
                         SkuMapping::updateOrCreate(
                             ['origSku' => $info['vendor_code']],
                             [
@@ -331,33 +410,37 @@ class CloneProductsJob implements ShouldQueue
                             'settings' => [
                                 'settings' => [
                                     'filter' => [
-                                        'textSearch' => $result['original_data']['variants'][0]['vendorCode'],
-                                        'withPhoto' => -1
+                                            'textSearch' => $item['info']['vendor_code'],
+                                            'withPhoto' => -1
+                                        ]
                                     ]
                                 ]
-                            ]
                         ])->onQueue('updateCardsProcess')->delay(now()->addMinute());
                         SimJob::dispatch('calcPrice', ['sid' => $info['vendor_code']])->onQueue('updateCardsProcess');
                         $product->delete();
                         $this->logSuccess("Продукт {$product->sku} успешно добавлен и удален из очереди");
-                    } else {
-                        $this->logWarning("Ошибка при обработке продукта {$product->sku} ");
-                        print_r($result);
                     }
                 } else {
-                    $product->delete();
-                    $this->logWarning("Товар ранее был создан: {$product->sku} ");
-                }
-                $this->increment++;
-                if ($this->increment >= $this->data['quantity']) {
-                    $this->logSuccess("Обработано {$this->increment} товаров из {$this->data['quantity']}. Конец очереди");
-                    break;
+                    foreach ($batchItems as $item) {
+                        $product = $item['product'];
+                        $this->logWarning("Ошибка batch upload для продукта {$product->sku}");
+                    }
+                    print_r($result);
                 }
             } catch (\Exception $e) {
-                $product->blocked = 1;
-                $product->save();
-                $this->logError("Критическая ошибка при обработке продукта {$product->sku}: " . $e->getMessage());
+                foreach ($batchItems as $item) {
+                    $product = $item['product'];
+                    $product->blocked = 1;
+                    $product->save();
+                    $this->logError("Критическая ошибка при обработке продукта {$product->sku}: " . $e->getMessage());
+                }
             }
+
+            if ($this->increment >= $this->data['quantity']) {
+                $this->logSuccess("Обработано {$this->increment} товаров из {$this->data['quantity']}. Конец очереди");
+                break;
+            }
+
             $this->logInfo("Пауза 1 секунда...");
             sleep(1);
         }
