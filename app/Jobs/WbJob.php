@@ -201,16 +201,35 @@ class WbJob implements ShouldQueue
             if (isset($card['photos']) && count($card['photos']) > 0) {
                 $photo = $card['photos'][0]['c246x328'];
             } else {
+                $supplierVendorCode = (string) ($card['vendorCode'] ?? '');
+                $resolvedSku = $sku;
+                $resolvedNmID = empty($nmID) ? Helper::getVendorCode($supplierVendorCode) : $nmID;
+
+                // WB supplier: use nmID from WB card directly.
+                if (str_starts_with($supplierVendorCode, 'W')) {
+                    $resolvedNmID = (string) $card['nmID'];
+                }
+
+                // Sima-Land supplier: origSku -> wbSku, and pass sku=origSku / nmID=wbSku.
+                if (str_starts_with($supplierVendorCode, 'S')) {
+                    $origSku = Helper::getVendorCode($supplierVendorCode);
+                    $mapping = SkuMapping::where('origSku', $origSku)->first();
+                    if (!empty($mapping?->wbSku)) {
+                        $resolvedSku = (string) $origSku;
+                        $resolvedNmID = (string) $mapping->wbSku;
+                    }
+                }
+
                 $postData = [
-                    'supplierID' => empty($nmID) ? Helper::getVendorCode($card['vendorCode']) : $nmID,
-                    'nmID' => $card['nmID'],
+                    'supplierID' => $resolvedNmID,
+                    'nmID' => $resolvedNmID,
                     'seller_id' => $seller->id
                 ];
                 self::dispatch('uploadPhotos', $postData)->onQueue('uploadPhotos');
                 self::dispatch('getCardList', [
                     'seller_id' => $seller->id,
-                    'sku' => $sku,
-                    'nmID' => empty($nmID) ? Helper::getVendorCode($card['vendorCode']) : $nmID,
+                    'sku' => $resolvedSku,
+                    'nmID' => $resolvedNmID,
                     'settings' => [
                         'settings' => [
                             'sort' => ['ascending' => true],
