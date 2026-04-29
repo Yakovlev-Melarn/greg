@@ -81,6 +81,7 @@ function ajaxGetLatestSystemNotifications() {
         const unreadCount = response?.unread_count ?? 0;
         const items = response?.items ?? [];
         $('#notifications-unread-counter').text('Новых уведомлений: ' + unreadCount);
+        $('#notificationBellBadge').toggleClass('d-none', unreadCount <= 0);
 
         const body = $('#notifications-dropdown-body');
         body.empty();

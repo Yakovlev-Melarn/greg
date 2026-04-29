@@ -36,6 +36,8 @@
                 <li class="nav-item dropdown">
                     <a class="nav-link" href="#" id="notificationDropdown" data-toggle="dropdown" aria-expanded="false">
                         <i class="mdi mdi-bell-outline mdi-1x"></i>
+                        <span id="notificationBellBadge"
+                              class="notification-indicator notification-indicator-danger notification-indicator-ripple{{ ($unreadSystemNotificationsCount ?? 0) > 0 ? '' : ' d-none' }}"></span>
                     </a>
                     <div class="dropdown-menu navbar-dropdown dropdown-menu-right"
                          aria-labelledby="notificationDropdown">
