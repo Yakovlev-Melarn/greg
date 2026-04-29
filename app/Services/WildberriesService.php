@@ -309,4 +309,36 @@ class WildberriesService
         echo "Статус запроса " . $result->status() . "\n";
         return $result->status() == 200;
     }
+
+    /**
+     * @throws ConnectionException
+     */
+    public function moveCardsToTrash(array $nmIds): bool
+    {
+        $result = Http::withHeaders([
+            'Authorization' => $this->apiKey,
+            'Content-Type' => 'application/json',
+        ])
+            ->timeout(30)
+            ->post("https://content-api.wildberries.ru/content/v2/cards/delete/trash", [
+                'nmIDs' => array_values($nmIds),
+            ]);
+        return $result->status() === 200;
+    }
+
+    /**
+     * @throws ConnectionException
+     */
+    public function recoverCardsFromTrash(array $nmIds): bool
+    {
+        $result = Http::withHeaders([
+            'Authorization' => $this->apiKey,
+            'Content-Type' => 'application/json',
+        ])
+            ->timeout(30)
+            ->post("https://content-api.wildberries.ru/content/v2/cards/recover", [
+                'nmIDs' => array_values($nmIds),
+            ]);
+        return $result->status() === 200;
+    }
 }

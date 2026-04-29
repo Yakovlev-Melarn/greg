@@ -106,6 +106,37 @@
             </div>
         </div>
     </div>
+    <div id="unitEconomyModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content unit-economy-modal">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title" id="unitEconomyTitle">Юнит-экономика товара</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body pt-2">
+                    <div class="unit-economy-modal__top">
+                        <img id="unitEconomyImage" class="unit-economy-modal__image" src="/assets/images/img_placeholder.jpg" alt="Товар">
+                        <div class="unit-economy-modal__meta">
+                            <h6 id="unitEconomyProductName" class="mb-2">Название товара</h6>
+                            <div class="unit-economy-modal__codes">
+                                <span id="unitEconomyCodeSku" class="badge badge-light">SKU: -</span>
+                                <span id="unitEconomyCodeNmId" class="badge badge-light">nmID: -</span>
+                                <span id="unitEconomyCodeWbId" class="badge badge-light d-none">WBID: -</span>
+                                <span id="unitEconomySourceBadge" class="badge badge-light">Источник: -</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="unitEconomyGrid" class="unit-economy-grid mt-3"></div>
+                    <div class="unit-economy-chart mt-3">
+                        <h6 class="unit-economy-chart__title mb-2">График структуры цены</h6>
+                        <div id="unitEconomyChart" class="unit-economy-chart__rows"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 @endsection
 @section('js')
     <script src="{{ asset('assets/js/Cards/index.js') }}"></script>

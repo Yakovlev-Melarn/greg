@@ -35,6 +35,7 @@ class SkuMapping extends Model
         'weight_kg',
         'wbPrice',
         'blocked',
+        'user_blocked',
         'needUpdatePrice',
     ];
 
@@ -51,6 +52,7 @@ class SkuMapping extends Model
         'width' => 'float',
         'weight_kg' => 'float',
         'blocked' => 'boolean',
+        'user_blocked' => 'boolean',
         'needUpdatePrice' => 'boolean',
     ];
 
