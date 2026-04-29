@@ -2,9 +2,9 @@
 @extends('layouts.app')
 @section('title', ' — товары конкурентов')
 @section('content')
-    <div class="page-content-wrapper">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
+    <div class="page-content-wrapper page-competitors">
+        <div class="glass-panel ui-form-shell">
+            <div class="card-header ui-form-shell__header">
                 <h5 class="mb-0">Клонирование карточек товаров</h5>
             </div>
             <div class="card-body">
@@ -85,11 +85,11 @@
                         </label>
                     </div>
 
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-primary flex-grow-1">
+                    <div class="d-flex gap-2 ui-form-actions">
+                        <button type="submit" class="btn btn-primary flex-grow-1 ui-action-btn">
                             Запустить клонирование
                         </button>
-                        <button type="reset" class="btn btn-secondary flex-grow-1">
+                        <button type="reset" class="btn btn-outline-secondary flex-grow-1">
                             Сбросить
                         </button>
                     </div>
@@ -97,7 +97,7 @@
 
                 <div class="mt-4" id="logSection" style="display: none;">
                     <h6>Лог выполнения</h6>
-                    <div id="jobLogs" style="height: 300px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #ddd; padding: 10px; font-size: 0.9rem;">
+                    <div id="jobLogs" class="ui-log-box">
                         <!-- Лог будет добавляться здесь -->
                     </div>
                     <div class="mt-2">

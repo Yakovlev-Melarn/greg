@@ -25,13 +25,6 @@
             <button class="t-header-toggler t-header-mobile-toggler d-block d-lg-none">
                 <i class="mdi mdi-menu"></i>
             </button>
-            <form action="#" class="t-header-search-box">
-                <div class="input-group">
-                    <input type="text" class="form-control" id="inlineFormInputGroup" placeholder="Поиск"
-                           autocomplete="off">
-                    <button class="btn btn-primary" type="submit"><i class="mdi mdi-arrow-right-thick"></i></button>
-                </div>
-            </form>
             <ul class="nav ml-auto">
                 <li class="nav-item dropdown">
                     <a class="nav-link" href="#" id="notificationDropdown" data-toggle="dropdown" aria-expanded="false">
@@ -129,33 +122,33 @@
                     <a class="nav-link" href="#" id="appsDropdown" data-toggle="dropdown" aria-expanded="false">
                         <i class="mdi mdi-apps mdi-1x"></i>
                     </a>
-                    <div class="dropdown-menu navbar-dropdown dropdown-menu-right" aria-labelledby="appsDropdown">
+                    <div class="dropdown-menu navbar-dropdown dropdown-menu-right apps-utilities-menu" aria-labelledby="appsDropdown">
                         <div class="dropdown-header">
                             <h6 class="dropdown-title">Настройки и утилиты</h6>
                         </div>
-                        <div class="dropdown-body border-top pt-0">
-                            <a class="dropdown-grid" id="sellersModal">
-                                <i class="grid-icon mdi mdi-jira mdi-2x"></i>
+                        <div class="dropdown-body border-top pt-0 utilities-grid">
+                            <a class="dropdown-grid utilities-grid__item" id="sellersModal">
+                                <i class="grid-icon mdi mdi-store mdi-2x"></i>
                                 <span class="grid-tittle">Магазины</span>
                             </a>
-                            <a class="dropdown-grid" id="suppliersModal">
-                                <i class="grid-icon mdi mdi-barcode mdi-2x"></i>
+                            <a class="dropdown-grid utilities-grid__item" id="suppliersModal">
+                                <i class="grid-icon mdi mdi-truck-fast mdi-2x"></i>
                                 <span class="grid-tittle">Поставщики</span>
                             </a>
-                            <a class="dropdown-grid" id="priceRecalcModal">
-                                <i class="grid-icon mdi mdi-percent mdi-2x"></i>
+                            <a class="dropdown-grid utilities-grid__item" id="priceRecalcModal">
+                                <i class="grid-icon mdi mdi-cash mdi-2x"></i>
                                 <span class="grid-tittle">Пересчёт цен</span>
                             </a>
-                            <a class="dropdown-grid">
-                                <i class="grid-icon mdi mdi-artstation mdi-2x"></i>
+                            <a class="dropdown-grid utilities-grid__item">
+                                <i class="grid-icon mdi mdi-sword-cross mdi-2x"></i>
                                 <span class="grid-tittle">Конкуренты</span>
                             </a>
-                            <a class="dropdown-grid">
-                                <i class="grid-icon mdi mdi-circle mdi-2x"></i>
+                            <a class="dropdown-grid utilities-grid__item">
+                                <i class="grid-icon mdi mdi-settings mdi-2x"></i>
                                 <span class="grid-tittle">Процессы</span>
                             </a>
-                            <a class="dropdown-grid">
-                                <i class="grid-icon mdi mdi-trello mdi-2x"></i>
+                            <a class="dropdown-grid utilities-grid__item">
+                                <i class="grid-icon mdi mdi-calendar mdi-2x"></i>
                                 <span class="grid-tittle">Календари</span>
                             </a>
                         </div>
@@ -172,7 +165,7 @@
 
             </div>
         </div>
-        <ul class="navigation-menu">
+        <ul class="navigation-menu main-nav-menu">
             <li class="nav-category-divider">ПЕРЕВОЗКИ</li>
             <li>
                 <a href="#">
@@ -183,13 +176,13 @@
             <li>
                 <a href="#">
                     <span class="link-title">Водители</span>
-                    <i class="mdi mdi-account link-icon"></i>
+                    <i class="mdi mdi-account-group-outline link-icon"></i>
                 </a>
             </li>
             <li>
                 <a href="#">
                     <span class="link-title">График</span>
-                    <i class="mdi mdi-calendar-clock link-icon"></i>
+                    <i class="mdi mdi-calendar link-icon"></i>
                 </a>
             </li>
             <li>
@@ -201,57 +194,57 @@
             <li>
                 <a href="#">
                     <span class="link-title">Надбавки / штрафы</span>
-                    <i class="mdi mdi-currency-rub link-icon"></i>
+                    <i class="mdi mdi-cash link-icon"></i>
                 </a>
             </li>
             <li class="nav-category-divider">МАГАЗИН</li>
             <li>
                 <a href="#">
                     <span class="link-title">Заказы</span>
-                    <i class="mdi mdi-clipboard-outline link-icon"></i>
+                    <i class="mdi mdi-receipt link-icon"></i>
                 </a>
             </li>
             <li>
                 <a href="#">
                     <span class="link-title">Остатки</span>
-                    <i class="mdi mdi-clipboard-outline link-icon"></i>
+                    <i class="mdi mdi-archive link-icon"></i>
                 </a>
             </li>
             <li>
                 <a href="#">
                     <span class="link-title">Отгрузки</span>
-                    <i class="mdi mdi-clipboard-outline link-icon"></i>
+                    <i class="mdi mdi-truck-delivery link-icon"></i>
                 </a>
             </li>
             <li class="nav-category-divider">ТОВАРЫ</li>
             <li>
                 <a href="/cards">
                     <span class="link-title">Все товары</span>
-                    <i class="mdi mdi-chart-donut link-icon"></i>
+                    <i class="mdi mdi-package-variant-closed link-icon"></i>
                 </a>
             </li>
             <li>
                 <a href="/copycard">
                     <span class="link-title">Копирование карточки</span>
-                    <i class="mdi mdi-chart-donut link-icon"></i>
+                    <i class="mdi mdi-content-copy link-icon"></i>
                 </a>
             </li>
             <li>
                 <a href="/competitorCards">
                     <span class="link-title">Товары конкурентов</span>
-                    <i class="mdi mdi-chart-donut link-icon"></i>
+                    <i class="mdi mdi-sword-cross link-icon"></i>
                 </a>
             </li>
             <li>
                 <a href="#">
                     <span class="link-title">Каталоги поставщиков</span>
-                    <i class="mdi mdi-chart-donut link-icon"></i>
+                    <i class="mdi mdi-book-open-page-variant link-icon"></i>
                 </a>
             </li>
             <li>
                 <a href="/blockedCards">
                     <span class="link-title">Удаление карточек</span>
-                    <i class="mdi mdi-chart-donut link-icon"></i>
+                    <i class="mdi mdi-delete-outline link-icon"></i>
                 </a>
             </li>
         </ul>

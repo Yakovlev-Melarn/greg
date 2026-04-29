@@ -2,15 +2,15 @@
 @extends('layouts.app')
 @section('title', ' — карантин карточек')
 @section('content')
-    <div class="page-content-wrapper">
+    <div class="page-content-wrapper page-blocked">
         <div class="page-content-wrapper-inner">
             <div class="content-viewport">
-                <div class="card card-form mt-5">
-                    <div class="card-title">
+                <div class="glass-panel card-form mt-4 ui-form-shell">
+                    <div class="card-title ui-form-shell__title">
                         Ручная блокировка карточек после модерации
                     </div>
                     <div class="card-body">
-                        <div class="alert alert-info">
+                        <div class="alert alert-info ui-alert">
                             Введите Артикул продавца (по одному на строку).
                         </div>
                         <form id="blockedCardsForm">
@@ -25,25 +25,25 @@
                                     required
                                 ></textarea>
                             </div>
-                            <button type="submit" class="btn btn-danger has-icon btn-rounded" id="quarantineSubmitBtn">
+                            <button type="submit" class="btn btn-danger has-icon ui-action-btn" id="quarantineSubmitBtn">
                                 <i class="mdi mdi-block-helper"></i> Поместить в карантин
                             </button>
                         </form>
                     </div>
                 </div>
 
-                <div class="card mt-4 d-none" id="quarantineResultCard">
+                <div class="glass-panel mt-4 d-none" id="quarantineResultCard">
                     <div class="card-body">
                         <h5>Результат обработки</h5>
                         <div id="quarantineSummary" class="mb-3"></div>
                         <div class="table-responsive">
-                            <table class="table table-hover">
+                            <table class="table table-hover ui-data-table">
                                 <thead>
                                 <tr>
-                                    <th>supplierVendorCode</th>
-                                    <th>Статус</th>
-                                    <th>Сообщение</th>
-                                    <th>SKU</th>
+                                    <th class="col-priority-1">supplierVendorCode</th>
+                                    <th class="col-priority-1">Статус</th>
+                                    <th class="col-priority-2">Сообщение</th>
+                                    <th class="col-priority-3">SKU</th>
                                 </tr>
                                 </thead>
                                 <tbody id="quarantineResultBody"></tbody>

@@ -48,10 +48,10 @@ $(document).ready(function () {
                     const sku = item.card && item.card.sku ? item.card.sku : '-';
                     const row = `
                         <tr>
-                            <td>${item.supplierVendorCode || ''}</td>
-                            <td class="${statusClass}">${item.status || 'unknown'}</td>
-                            <td>${item.message || ''}</td>
-                            <td>${sku}</td>
+                            <td class="col-priority-1">${item.supplierVendorCode || ''}</td>
+                            <td class="${statusClass} col-priority-1">${item.status || 'unknown'}</td>
+                            <td class="col-priority-2">${item.message || ''}</td>
+                            <td class="col-priority-3">${sku}</td>
                         </tr>
                     `;
                     $resultBody.append(row);

@@ -2,11 +2,11 @@
 @extends('layouts.app')
 @section('title', ' — копирование карточки')
 @section('content')
-    <div class="page-content-wrapper">
+    <div class="page-content-wrapper page-copycard">
         <div class="page-content-wrapper-inner">
             <div class="content-viewport">
                 @if(session()->has('error'))
-                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <div class="alert alert-danger alert-dismissible fade show ui-alert" role="alert">
                         <strong>Ошибка!</strong>
                         <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
@@ -14,19 +14,19 @@
                     </div>
                 @endif
                 @if(session()->has('success'))
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <div class="alert alert-success alert-dismissible fade show ui-alert" role="alert">
                         <strong>Карточка скопирована.</strong>
                         <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
                         </button>
                     </div>
                 @endif
-                <div class="card card-form mt-5">
-                    <div class="card-title">
-                        Карточка товара
+                <div class="glass-panel card-form mt-4 ui-form-shell">
+                    <div class="card-title ui-form-shell__title">
+                        Копирование карточки товара
                     </div>
                     <div class="card-body">
-                        <form method="post" action="">
+                        <form method="post" action="" class="ui-form-grid">
                             @csrf
                             <div class="form-group">
                                 <label for="nmID">Артикул nmID:</label>
@@ -56,7 +56,7 @@
                                        required>
                             </div>
 
-                            <button type="submit" class="btn btn-primary has-icon btn-rounded"><i
+                            <button type="submit" class="btn btn-primary has-icon ui-action-btn"><i
                                     class="mdi mdi-content-copy"></i> Копировать
                             </button>
                         </form>

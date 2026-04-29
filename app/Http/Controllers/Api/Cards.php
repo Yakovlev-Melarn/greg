@@ -10,12 +10,54 @@ class Cards
 {
     public function getList($request): array
     {
-        return ModelsCards::where('sellerId', $request['seller'])
-            ->limit(20)
-            ->offset($request['offset'])
-            ->orderBy('id', 'desc')
+        $page = max(1, (int)($request['page'] ?? 1));
+        $perPage = max(1, min((int)($request['per_page'] ?? 20), 100));
+        $search = trim((string)($request['search'] ?? ''));
+        $supplier = (string)($request['supplier'] ?? '');
+        $sortBy = (string)($request['sort_by'] ?? 'id');
+        $sortDir = strtolower((string)($request['sort_dir'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
+
+        $allowedSort = ['id', 'nmID', 'supplierVendorCode', 'supplierName', 'vendorCode', 'productName', 'created_at'];
+        if (!in_array($sortBy, $allowedSort, true)) {
+            $sortBy = 'id';
+        }
+
+        $query = ModelsCards::query()
+            ->where('sellerId', $request['seller']);
+
+        if ($supplier !== '') {
+            $query->where('supplier', (int)$supplier);
+        }
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('productName', 'like', "%{$search}%")
+                    ->orWhere('supplierVendorCode', 'like', "%{$search}%")
+                    ->orWhere('vendorCode', 'like', "%{$search}%")
+                    ->orWhere('nmID', 'like', "%{$search}%");
+            });
+        }
+
+        $total = (clone $query)->count();
+        $items = $query
+            ->orderBy($sortBy, $sortDir)
+            ->forPage($page, $perPage)
             ->get()
             ->toArray();
+
+        return [
+            'items' => $items,
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => max(1, (int)ceil($total / $perPage)),
+                'sort_by' => $sortBy,
+                'sort_dir' => $sortDir,
+                'search' => $search,
+                'supplier' => $supplier,
+            ],
+        ];
     }
 
     public function updateList($request): array

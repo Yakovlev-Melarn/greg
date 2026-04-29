@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('title', ' — уведомления')
 @section('content')
-    <div class="page-content-wrapper">
+    <div class="page-content-wrapper notifications-page">
         <div class="page-content-wrapper-inner">
             <div class="content-viewport">
                 <div class="grid">
@@ -37,34 +37,34 @@
                         </form>
 
                         <div class="table-responsive">
-                            <table class="table table-hover">
+                            <table class="table table-hover ui-data-table">
                                 <thead>
                                 <tr>
-                                    <th>Дата</th>
-                                    <th>Тип</th>
-                                    <th>Статус</th>
-                                    <th>Заголовок</th>
-                                    <th>Текст</th>
-                                    <th></th>
+                                    <th class="col-priority-2">Дата</th>
+                                    <th class="col-priority-3">Тип</th>
+                                    <th class="col-priority-2">Статус</th>
+                                    <th class="col-priority-1">Заголовок</th>
+                                    <th class="col-priority-2">Текст</th>
+                                    <th class="col-priority-3"></th>
                                 </tr>
                                 </thead>
                                 <tbody>
                                 @forelse($notifications as $notification)
                                     <tr>
-                                        <td>{{ $notification->created_at?->format('d.m.Y H:i') }}</td>
-                                        <td>
+                                        <td class="col-priority-2">{{ $notification->created_at?->format('d.m.Y H:i') }}</td>
+                                        <td class="col-priority-3">
                                             <span class="badge badge-{{ $notification->level === 'error' ? 'danger' : ($notification->level === 'warning' ? 'warning' : ($notification->level === 'success' ? 'success' : 'info')) }}">
                                                 {{ strtoupper($notification->level) }}
                                             </span>
                                         </td>
-                                        <td>
+                                        <td class="col-priority-2">
                                             <span class="badge js-read-status-badge badge-{{ $notification->is_read ? 'secondary' : 'primary' }}">
                                                 {{ $notification->is_read ? 'READ' : 'UNREAD' }}
                                             </span>
                                         </td>
-                                        <td>{{ $notification->title }}</td>
-                                        <td>{{ $notification->message }}</td>
-                                        <td class="text-right">
+                                        <td class="col-priority-1">{{ $notification->title }}</td>
+                                        <td class="col-priority-2">{{ $notification->message }}</td>
+                                        <td class="text-right col-priority-3">
                                             @if(! $notification->is_read)
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-primary js-mark-read-notification-page"
