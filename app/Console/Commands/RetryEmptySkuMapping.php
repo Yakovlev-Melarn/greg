@@ -19,6 +19,7 @@ class RetryEmptySkuMapping extends Command
 
         $rows = SkuMapping::query()
             ->whereNull('purchase_price')
+            ->where('blocked', 0)
             ->where('created_at', '<=', $cutoff)
             ->orderBy('id')
             ->limit($limit)

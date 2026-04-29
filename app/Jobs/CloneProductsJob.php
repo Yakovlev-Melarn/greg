@@ -312,7 +312,12 @@ class CloneProductsJob implements ShouldQueue
             }
 
             $batchItems = [];
-            $service = null;
+            $service = new WildberriesService($seller->wb_api_key, [
+                'prefix' => '',
+                'nmID' => '0',
+                'package' => 1,
+                'price' => 0,
+            ]);
 
             foreach ($productChunk as $product) {
                 if ($this->increment >= $this->data['quantity']) {
@@ -330,12 +335,6 @@ class CloneProductsJob implements ShouldQueue
                     }
 
                     $info = WBContent::getCardInfo($product->sku);
-                    $service = new WildberriesService($seller->wb_api_key, [
-                        'prefix' => $product->prefix,
-                        'nmID' => $product->sku,
-                        'package' => 1,
-                        'price' => $product->price
-                    ]);
 
                     $batchItems[] = [
                         'product' => $product,
@@ -353,7 +352,7 @@ class CloneProductsJob implements ShouldQueue
                 }
             }
 
-            if (empty($batchItems) || !$service) {
+            if (empty($batchItems)) {
                 continue;
             }
 
@@ -362,12 +361,25 @@ class CloneProductsJob implements ShouldQueue
                     'sourceData' => $item['sourceData'],
                     'sku' => $item['sku'],
                     'queueSku' => $item['queueSku'],
+                    'itemCardConfig' => [
+                        'prefix' => $item['product']->prefix ?? '',
+                        'nmID' => $item['product']->sku,
+                        'package' => 1,
+                        'price' => $item['product']->price,
+                    ],
                 ], $batchItems);
 
                 $result = $service->addProductsFromSourceBatch($payload);
                 $skippedByQueueSku = [];
                 foreach ($result['skipped_items'] ?? [] as $skippedItem) {
                     $skippedByQueueSku[(string)$skippedItem['queueSku']] = $skippedItem;
+                }
+                $uploadedVendorCodeByQueueSku = [];
+                foreach ($result['items'] ?? [] as $uploadedItem) {
+                    if (empty($uploadedItem['queueSku'])) {
+                        continue;
+                    }
+                    $uploadedVendorCodeByQueueSku[(string)$uploadedItem['queueSku']] = $uploadedItem['vendorCode'] ?? null;
                 }
 
                 foreach ($batchItems as $item) {
@@ -379,11 +391,20 @@ class CloneProductsJob implements ShouldQueue
                     }
 
                     $skipError = $skippedByQueueSku[$queueSku]['error'] ?? 'Unknown error';
-                    $this->logWarning(
-                        "Пропуск продукта {$product->sku}: {$skipError}. " .
-                        "Товар не отправлен в WB и удален из очереди без блокировки"
-                    );
-                    $product->delete();
+                    if ($skipError === 'Amount is null') {
+                        $product->blocked = 1;
+                        $product->save();
+                        $this->logWarning(
+                            "Продукт {$product->sku} помещен в блокировку: {$skipError}. " .
+                                "Товар не отправлен в WB"
+                        );
+                    } else {
+                        $this->logWarning(
+                            "Пропуск продукта {$product->sku}: {$skipError}. " .
+                                "Товар не отправлен в WB и удален из очереди без блокировки"
+                        );
+                        $product->delete();
+                    }
                 }
 
                 if ($result['success']) {
@@ -410,11 +431,11 @@ class CloneProductsJob implements ShouldQueue
                             'settings' => [
                                 'settings' => [
                                     'filter' => [
-                                            'textSearch' => $item['info']['vendor_code'],
-                                            'withPhoto' => -1
-                                        ]
+                                        'textSearch' => $uploadedVendorCodeByQueueSku[(string)$product->sku] ?? $item['info']['vendor_code'],
+                                        'withPhoto' => -1
                                     ]
                                 ]
+                            ]
                         ])->onQueue('updateCardsProcess')->delay(now()->addMinute());
                         SimJob::dispatch('calcPrice', ['sid' => $info['vendor_code']])->onQueue('updateCardsProcess');
                         $product->delete();

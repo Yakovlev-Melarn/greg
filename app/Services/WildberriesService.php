@@ -26,7 +26,7 @@ class WildberriesService
     /**
      * @throws ConnectionException
      */
-    public function addProductFromSource(array $sourceData, $sku = null): array
+    public function addProductFromSource(array $sourceData, ?string $sku = null): array
     {
         $productData = $this->transformSourceData($sourceData, $sku);
         $response = Http::withHeaders([
@@ -42,8 +42,69 @@ class WildberriesService
      * @throws ConnectionException
      * @throws \Exception
      */
-    private function transformSourceData(array $source, $sku = null): array
+    public function addProductsFromSourceBatch(array $products): array
     {
+        $payload = [];
+        $itemsMeta = [];
+        $skippedItems = [];
+
+        foreach ($products as $product) {
+            $sourceData = $product['sourceData'] ?? [];
+            $sku = $product['sku'] ?? null;
+            $queueSku = $product['queueSku'] ?? null;
+            $itemCardConfig = $product['itemCardConfig'] ?? null;
+            try {
+                $productData = $this->transformSourceData($sourceData, $sku, $itemCardConfig);
+                $payload[] = $productData;
+                $itemsMeta[] = [
+                    'queueSku' => $queueSku,
+                    'sid' => $sku,
+                    'vendorCode' => $productData['variants'][0]['vendorCode'] ?? null,
+                ];
+            } catch (\Exception $e) {
+                $skippedItems[] = [
+                    'queueSku' => $queueSku,
+                    'sid' => $sku,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        if (empty($payload)) {
+            return [
+                'success' => false,
+                'http_code' => 422,
+                'error' => ['message' => 'Нет валидных товаров для batch upload'],
+                'original_data' => [],
+                'items' => [],
+                'skipped_items' => $skippedItems,
+            ];
+        }
+
+        $response = Http::withHeaders([
+            'Authorization' => $this->apiKey,
+            'Content-Type' => 'application/json',
+        ])
+            ->timeout(60)
+            ->post($this->baseUrl . 'cards/upload', $payload);
+
+        $result = $this->handleResponse($response, $payload);
+        $result['items'] = $itemsMeta;
+        $result['skipped_items'] = $skippedItems;
+        return $result;
+    }
+
+    /**
+     * @throws ConnectionException
+     * @throws \Exception
+     */
+    private function transformSourceData(array $source, ?string $sku = null, ?array $itemCardConfig = null): array
+    {
+        $cfg = $itemCardConfig ?? $this->cardConfig;
+        $vendorCode = empty($sku)
+            ? ($cfg['prefix'] . '-' . $cfg['nmID'] . '-' . $cfg['package'])
+            : "{$cfg['prefix']}-{$sku}-{$cfg['package']}";
+
         return [
             'subjectID' => $source['data']['subject_id'],
             'variants' => [
@@ -51,9 +112,9 @@ class WildberriesService
                     'brand' => $this->extractBrand($source),
                     'title' => $source['imt_name'] ?? '',
                     'description' => $source['description'] ?? '',
-                    'vendorCode' => empty($sku) ? $this->vendorCode : "{$this->cardConfig['prefix']}-{$sku}-{$this->cardConfig['package']}",
+                    'vendorCode' => $vendorCode,
                     'dimensions' => $this->extractDimensions($sku),
-                    'sizes' => $this->extractSizes($source),
+                    'sizes' => $this->extractSizes($cfg),
                     'characteristics' => $this->extractCharacteristics($source)
                 ]
             ]
@@ -75,6 +136,7 @@ class WildberriesService
             'windigo' => 'WINDIGO',
             'take it easy' => 'Take it easy',
             'qf' => 'Queen fair',
+            'bayerlux' => 'BayerLux',
             default => $brand,
         };
     }
@@ -82,7 +144,7 @@ class WildberriesService
     /**
      * @throws \Exception
      */
-    private function extractDimensions($sku = null): array
+    private function extractDimensions(?string $sku = null): array
     {
         if (empty($sku)) {
             echo "Sku is empty \r\n";
@@ -105,9 +167,12 @@ class WildberriesService
         ];
     }
 
-    private function extractSizes(array $source): array
+    /**
+     * @param array $cfg Конфиг карточки (цена в рублях, как в cardConfig)
+     */
+    private function extractSizes(array $cfg): array
     {
-        return [['price' => (int)$this->cardConfig['price']]];
+        return [['price' => (int)$cfg['price']]];
     }
 
     /**

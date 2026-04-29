@@ -16,6 +16,7 @@ class CloneProducts
             'quantity' => 'required|integer|min:1|max:1000',
             'min_price' => 'nullable|numeric|min:0',
             'max_price' => 'nullable|numeric|min:0',
+            'batch_size' => 'nullable|integer|min:1|max:100',
             'in_stock_only' => 'nullable|int:0,1',
             'prefix' => 'nullable|string|max:10',
             'seller_id' => 'nullable|integer'

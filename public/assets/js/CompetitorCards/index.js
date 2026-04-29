@@ -19,6 +19,7 @@ $(document).ready(function () {
             quantity: $('#quantity').val(),
             min_price: $('#minPrice').val() || 0,
             max_price: $('#maxPrice').val() || 100000,
+            batch_size: $('#batchSize').val() || 20,
             in_stock_only: $('#inStockOnly').is(':checked') ? 1 : 0,
             prefix: $('#prefix').val(),
             seller_id: $('meta[name="sellerId"]').attr('content')

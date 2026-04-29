@@ -44,6 +44,23 @@
                         </div>
                     </div>
 
+                    <div class="mb-3">
+                        <label for="batchSize" class="form-label">Размер пакета отправки в WB</label>
+                        <input
+                            type="number"
+                            class="form-control"
+                            id="batchSize"
+                            value="20"
+                            min="1"
+                            max="100"
+                            required
+                        >
+                        <div class="invalid-feedback">
+                            Укажите размер пакета от 1 до 100.
+                        </div>
+                        <small class="text-muted">Рекомендуемое значение: 20-50</small>
+                    </div>
+
                     <!-- Новое поле: Префикс артикула -->
                     <div class="mb-3">
                         <label for="prefix" class="form-label">Префикс артикула</label>
