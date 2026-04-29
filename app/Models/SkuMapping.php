@@ -16,6 +16,7 @@ class SkuMapping extends Model
     use HasFactory;
 
     protected $table = 'skuMapping';
+
     protected $fillable = [
         'origSku',
         'wbSku',
@@ -34,6 +35,7 @@ class SkuMapping extends Model
         'weight_kg',
         'wbPrice',
         'blocked',
+        'needUpdatePrice',
     ];
 
     protected $casts = [
@@ -49,6 +51,7 @@ class SkuMapping extends Model
         'width' => 'float',
         'weight_kg' => 'float',
         'blocked' => 'boolean',
+        'needUpdatePrice' => 'boolean',
     ];
 
     public function card(): BelongsTo

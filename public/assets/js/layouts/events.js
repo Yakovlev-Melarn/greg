@@ -9,6 +9,18 @@ $("#sellersModal").on('click', function (e) {
 $("#suppliersModal").on('click', function () {
     loadSuppliers();
 });
+$("#notificationDropdown").on('click', function () {
+    ajaxGetLatestSystemNotifications();
+});
+
+$("#priceRecalcModal").on('click', function () {
+    let modal = new Modal({
+        title: 'Пересчёт цен по наценке'
+    });
+    modal.clear();
+    modal.show();
+    showTemplate('price-recalc-template', modal);
+});
 
 function loadSuppliers() {
     let $template = $("#suppliers-template");
@@ -38,9 +50,46 @@ $(document).on('submit', "#addSupplierForm", function (e) {
     const formData = $(this).serialize();
     ajaxAddSupplier(formData);
 });
+$(document).on('submit', "#priceRecalcForm", function (e) {
+    e.preventDefault();
+    const formData = $(this).serialize();
+    ajaxRecalculateSkuPrices(formData);
+});
 $(document).on('click', '.deleteSupplier', function() {
     const supplierId = $(this).data('id');
     if (confirm('Вы уверены, что хотите удалить этого поставщика?')) {
         ajaxDeleteSupplier(supplierId);
     }
 });
+$(document).on('click', '#markAllNotificationsRead', function (e) {
+    e.preventDefault();
+    ajaxMarkAllNotificationsRead();
+});
+$(document).on('click', '.js-mark-read-notification', function () {
+    const notificationId = $(this).data('id');
+    if (!notificationId) {
+        return;
+    }
+    ajaxMarkNotificationRead(notificationId, function () {
+        ajaxGetLatestSystemNotifications();
+    });
+});
+$(document).on('click', '.js-mark-read-notification-page', function () {
+    const notificationId = $(this).data('id');
+    if (!notificationId) {
+        return;
+    }
+    const row = $(this).closest('tr');
+    ajaxMarkNotificationRead(notificationId, function () {
+        row.find('.js-read-status-badge')
+            .removeClass('badge-primary')
+            .addClass('badge-secondary')
+            .text('READ');
+        row.find('.js-mark-read-notification-page').remove();
+        ajaxGetLatestSystemNotifications();
+    });
+});
+
+setInterval(function () {
+    ajaxGetLatestSystemNotifications();
+}, 30000);

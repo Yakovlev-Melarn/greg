@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\SkuMapping;
 use App\Services\SimService;
+use App\Services\SkuPriceRecalculationService;
 use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,31 +12,23 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
-use InvalidArgumentException;
 
 class SimJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    const WB_COMMISSION_RATE = 0.38;
-    const TAX_RATE = 0.06;
-    const FULFILLMENT_COST = 53;
     const MIN_PROFIT_MARGIN = 0.17;
+
     public int $tries = 10;
+
     public int $timeout = 3600;
+
     public array $backoff = [30, 120, 300, 600];
 
-    /**
-     * @param string $action
-     * @param array $params
-     */
     public function __construct(
         private readonly string $action,
-        private readonly array  $params = []
-    )
-    {
-    }
+        private readonly array $params = []
+    ) {}
 
     public function handle(): void
     {
@@ -56,7 +49,7 @@ class SimJob implements ShouldQueue
                 return ['stock_quantity' => -1];
             }
             echo "📏 Получение размеров товара\n";
-            $dimensions = SimService::getProductDimensions($item, $item['product_volume'] ?? 0, (string)$params['sid']);
+            $dimensions = SimService::getProductDimensions($item, $item['product_volume'] ?? 0, (string) $params['sid']);
             echo "📦 Расчет количества на складе\n";
             $stockQuantity = SimService::calculateStockQuantity($item);
             echo "🚚 Расчет логистики\n";
@@ -64,37 +57,21 @@ class SimJob implements ShouldQueue
             $logisticsCost = $this->calculateLogistics($productVolume);
             echo "💰 Расчет закупочной цены\n";
             $purchasePrice = $item['price'];
-            echo "🎯 Расчет цены продажи\n";
-            $sellingPrice = $this->calculateSellingPrice($purchasePrice, $logisticsCost);
-            echo "🧮 Расчет итоговой стоимости\n";
-            $totalCost = $sellingPrice + $logisticsCost + self::FULFILLMENT_COST;
-            echo "💼 Расчет комиссии и налога\n";
-            $wbCommission = $totalCost * self::WB_COMMISSION_RATE;
-            $tax = $totalCost * self::TAX_RATE;
-            echo "📈 Расчет чистой прибыли\n";
-            $netProfit = $this->calculateNetProfit(
-                $totalCost,
+            echo '🎯 Расчет цены продажи (наценка '.(self::MIN_PROFIT_MARGIN * 100)."% к закупке)\n";
+            $priceBlock = SkuPriceRecalculationService::calculateFromPurchaseAndLogistics(
                 $purchasePrice,
                 $logisticsCost,
-                self::FULFILLMENT_COST,
-                $wbCommission,
-                $tax
+                self::MIN_PROFIT_MARGIN
             );
             $data = array_merge([
                 'purchase_price' => $purchasePrice,
                 'logistics_cost' => round($logisticsCost, 2),
-                'selling_price' => round($sellingPrice, 2),
-                'total_cost' => round($totalCost, 2),
-                'wb_commission' => round($wbCommission, 2),
-                'fulfillment_cost' => self::FULFILLMENT_COST,
-                'tax' => round($tax, 2),
-                'net_profit' => round($netProfit, 2),
                 'stock_quantity' => $stockQuantity,
                 'depth' => $item['depth'],
                 'length' => $item['width'],
                 'width' => $item['height'],
-                'weight_kg' => round($item['weight'] / 1000, 2)
-            ], $dimensions);
+                'weight_kg' => round($item['weight'] / 1000, 2),
+            ], $priceBlock, $dimensions);
             echo "🔄 Обновление или создание записи\n";
             SkuMapping::updateOrCreate(
                 ['origSku' => $params['sid']],
@@ -103,18 +80,20 @@ class SimJob implements ShouldQueue
             echo "✅ Джоба успешно завершена\n";
         } catch (ConnectionException $e) {
             // Temporary API/network issue: rethrow to let queue retry.
-            echo "🌐 Временная ошибка соединения: " . $e->getMessage() . "\n";
+            echo '🌐 Временная ошибка соединения: '.$e->getMessage()."\n";
             throw $e;
         } catch (Exception $e) {
-            echo "🚨 Произошла ошибка: " . $e->getMessage() . "\n";
+            echo '🚨 Произошла ошибка: '.$e->getMessage()."\n";
             if ($e->getMessage() === 'Invalid API response format') {
                 // API occasionally returns broken/empty payloads under network pressure.
                 // Treat this as transient and let queue retries handle it.
                 throw $e;
             }
+
             return $this->handleError($e);
         }
         echo "🎉 Все операции выполнены успешно\n";
+
         return ['success' => true];
     }
 
@@ -135,31 +114,8 @@ class SimJob implements ShouldQueue
         } else {
             $rate = 32;
         }
+
         return $rate * $coefficient;
-    }
-
-    private function calculateSellingPrice(float $purchasePrice, float $logisticsCost): float
-    {
-        $desiredProfit = $purchasePrice * (1 + self::MIN_PROFIT_MARGIN);
-        $fixedExpenses = $logisticsCost + self::FULFILLMENT_COST;
-        return ($desiredProfit + $fixedExpenses) / (1 - self::WB_COMMISSION_RATE - self::TAX_RATE);
-    }
-
-    private function calculateNetProfit(
-        float $totalCost,
-        float $purchasePrice,
-        float $logisticsCost,
-        float $fulfillmentCost,
-        float $wbCommission,
-        float $tax
-    ): float
-    {
-        return $totalCost -
-            ($purchasePrice +
-                $logisticsCost +
-                $fulfillmentCost +
-                $wbCommission +
-                $tax);
     }
 
     protected function handleError(Exception $exception): array
@@ -167,8 +123,8 @@ class SimJob implements ShouldQueue
         return [
             'error' => [
                 'message' => $exception->getMessage(),
-                'code' => $exception->getCode()
-            ]
+                'code' => $exception->getCode(),
+            ],
         ];
     }
 }

@@ -41,39 +41,39 @@
                          aria-labelledby="notificationDropdown">
                         <div class="dropdown-header">
                             <h6 class="dropdown-title">Уведомления</h6>
-                            <p class="dropdown-title-text">Новых уведомлений: 4</p>
+                            <p class="dropdown-title-text" id="notifications-unread-counter">Новых уведомлений: {{ $unreadSystemNotificationsCount ?? 0 }}</p>
                         </div>
-                        <div class="dropdown-body">
-                            <div class="dropdown-list">
-                                <div class="icon-wrapper rounded-circle bg-inverse-primary text-primary">
-                                    <i class="mdi mdi-alert"></i>
+                        <div class="dropdown-body" id="notifications-dropdown-body">
+                            @forelse(($latestSystemNotifications ?? collect()) as $notification)
+                                @php
+                                    $iconClass = match ($notification->level) {
+                                        'success' => 'mdi-check-circle text-success',
+                                        'warning' => 'mdi-alert text-warning',
+                                        'error' => 'mdi-alert-circle text-danger',
+                                        default => 'mdi-information text-primary',
+                                    };
+                                @endphp
+                                <div class="dropdown-list{{ $notification->is_read ? '' : ' js-mark-read-notification' }}" data-id="{{ $notification->id }}">
+                                    <div class="icon-wrapper rounded-circle bg-inverse-primary">
+                                        <i class="mdi {{ $iconClass }}"></i>
+                                    </div>
+                                    <div class="content-wrapper">
+                                        <small class="name{{ $notification->is_read ? '' : ' font-weight-bold' }}">{{ $notification->title }}</small>
+                                        <small class="content-text">{{ $notification->message }}</small>
+                                    </div>
                                 </div>
-                                <div class="content-wrapper">
-                                    <small class="name">Поставка переполнена</small>
-                                    <small class="content-text">более 50 заказов</small>
+                            @empty
+                                <div class="dropdown-list">
+                                    <div class="content-wrapper">
+                                        <small class="name">Пока пусто</small>
+                                        <small class="content-text">Системные уведомления еще не поступали</small>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="dropdown-list">
-                                <div class="icon-wrapper rounded-circle bg-inverse-success text-success">
-                                    <i class="mdi mdi-cloud-upload"></i>
-                                </div>
-                                <div class="content-wrapper">
-                                    <small class="name">Синхронизация</small>
-                                    <small class="content-text">успешно завершена</small>
-                                </div>
-                            </div>
-                            <div class="dropdown-list">
-                                <div class="icon-wrapper rounded-circle bg-inverse-warning text-warning">
-                                    <i class="mdi mdi-security"></i>
-                                </div>
-                                <div class="content-wrapper">
-                                    <small class="name">API ключ</small>
-                                    <small class="content-text">заканчивается 10.01.2026</small>
-                                </div>
-                            </div>
+                            @endforelse
                         </div>
                         <div class="dropdown-footer">
-                            <a href="#">Смотреть все</a>
+                            <a href="/notifications">Смотреть все</a>
+                            <a href="#" id="markAllNotificationsRead">Отметить все как прочитанные</a>
                         </div>
                     </div>
                 </li>
@@ -139,6 +139,10 @@
                             <a class="dropdown-grid" id="suppliersModal">
                                 <i class="grid-icon mdi mdi-barcode mdi-2x"></i>
                                 <span class="grid-tittle">Поставщики</span>
+                            </a>
+                            <a class="dropdown-grid" id="priceRecalcModal">
+                                <i class="grid-icon mdi mdi-percent mdi-2x"></i>
+                                <span class="grid-tittle">Пересчёт цен</span>
                             </a>
                             <a class="dropdown-grid">
                                 <i class="grid-icon mdi mdi-artstation mdi-2x"></i>
@@ -254,6 +258,7 @@
 </div>
 <x-sellers />
 <x-suppliers />
+<x-price-recalc />
 <x-shops/>
 <x-modal/>
 <script src={{ url('assets/js/lodash.js') }}></script>
