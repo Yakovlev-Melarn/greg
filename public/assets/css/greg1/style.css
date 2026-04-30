@@ -469,13 +469,31 @@ body {
 }
 
 .glass-panel,
-.grid,
-.modal-content {
+.grid {
     background: var(--ui-surface);
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius-lg);
     box-shadow: var(--ui-shadow-soft);
     backdrop-filter: blur(8px);
+}
+
+.modal-content {
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: var(--ui-radius-lg);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.16);
+    backdrop-filter: none;
+    color: var(--ui-text);
+}
+
+.modal-header,
+.modal-footer {
+    border-color: var(--ui-border);
+    background: #ffffff;
+}
+
+.modal-body {
+    background: #ffffff;
 }
 
 .grid .grid-body {
@@ -752,6 +770,88 @@ body {
     padding-right: 6px;
 }
 
+.page-fleet .content-viewport {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.page-fleet .cards-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+}
+
+.page-fleet .cards-filters {
+    padding: 14px 16px 10px;
+}
+
+.page-fleet .cards-filters .row {
+    margin-left: -6px;
+    margin-right: -6px;
+}
+
+.page-fleet .cards-filters [class*="col-"] {
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+.page-fleet .cards-filters .form-control,
+.page-fleet .cards-filters .btn {
+    min-height: 42px;
+}
+
+.page-fleet .cards-content {
+    padding: 14px;
+}
+
+.page-fleet .cards-content .table-responsive {
+    border: 1px solid var(--ui-border);
+    border-radius: 12px;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.75);
+}
+
+.page-fleet .ui-data-table thead th:first-child,
+.page-fleet .ui-data-table tbody td:first-child {
+    padding-left: 12px;
+}
+
+.page-fleet .ui-data-table thead th:last-child,
+.page-fleet .ui-data-table tbody td:last-child {
+    padding-right: 12px;
+}
+
+.page-fleet .table-hover tbody tr:hover {
+    background: rgba(68, 86, 242, 0.02);
+}
+
+.page-fleet #vehicleModal .modal-content,
+.page-fleet #transportCompaniesModal .modal-content,
+.page-fleet #vehicleExpensesModal .modal-content {
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.16);
+    backdrop-filter: none;
+}
+
+.page-fleet #vehicleModal .modal-header,
+.page-fleet #vehicleModal .modal-footer,
+.page-fleet #transportCompaniesModal .modal-header,
+.page-fleet #transportCompaniesModal .modal-footer,
+.page-fleet #vehicleExpensesModal .modal-header,
+.page-fleet #vehicleExpensesModal .modal-footer {
+    background: #ffffff;
+    border-color: var(--ui-border);
+}
+
+.page-fleet #vehicleModal .modal-body,
+.page-fleet #transportCompaniesModal .modal-body,
+.page-fleet #vehicleExpensesModal .modal-body {
+    background: #ffffff;
+}
+
 .cards-empty-state {
     text-align: center;
     padding: 28px 16px;
@@ -860,6 +960,11 @@ body {
         z-index: 40;
         margin-bottom: 10px;
     }
+
+    .page-fleet .cards-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
 }
 
 @media (max-width: 767.98px) {
@@ -895,6 +1000,19 @@ body {
 
     .page-cards .cards-content {
         padding: 10px;
+    }
+
+    .page-fleet .content-viewport {
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .page-fleet .cards-content {
+        padding: 10px;
+    }
+
+    .page-fleet .cards-content .table-responsive {
+        padding: 2px 6px;
     }
 
     .navbar-dropdown {

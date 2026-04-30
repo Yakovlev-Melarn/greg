@@ -168,7 +168,7 @@
         <ul class="navigation-menu main-nav-menu">
             <li class="nav-category-divider">ПЕРЕВОЗКИ</li>
             <li>
-                <a href="#">
+                <a href="/fleet">
                     <span class="link-title">Парк</span>
                     <i class="mdi mdi-truck link-icon"></i>
                 </a>
