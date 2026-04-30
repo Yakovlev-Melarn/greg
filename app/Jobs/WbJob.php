@@ -77,18 +77,26 @@ class WbJob implements ShouldQueue
     private function getCardList($params): void
     {
         if ($params['seller_id']) {
-            $sku = empty($params['sku']) ? null : $params['sku'];
-            $nmID = empty($params['nmID']) ? null : $params['nmID'];
+            // New explicit flow fields:
+            // - sourceSku: original supplier SKU (e.g. Sima sid)
+            // - queueWbSku: temporary WB sku from product queue before real card nmID is known
+            // Backward compatibility:
+            // - sku -> sourceSku
+            // - nmID -> queueWbSku
+            $sourceSku = empty($params['sourceSku']) ? ($params['sku'] ?? null) : $params['sourceSku'];
+            $queueWbSku = empty($params['queueWbSku']) ? ($params['nmID'] ?? null) : $params['queueWbSku'];
             $seller = Sellers::find($params['seller_id']);
             $service = new WildberriesService($seller->wb_api_key, []);
             $result = $service->getCardList($params['settings']);
             $cursor = $result['data']['cursor']['nmID'];
             $updatedAt = $result['data']['cursor']['updatedAt'];
             $total = $result['data']['cursor']['total'];
-            $this->updateCard($result['data']['cards'], $seller, $sku, $nmID);
+            $this->updateCard($result['data']['cards'], $seller, $sourceSku, $queueWbSku);
             if ($total == 100) {
                 self::dispatch('getCardList', [
                     'seller_id' => $params['seller_id'],
+                    'sourceSku' => $sourceSku,
+                    'queueWbSku' => $queueWbSku,
                     'settings' => [
                         'settings' => [
                             'sort' => ['ascending' => true],
@@ -182,87 +190,100 @@ class WbJob implements ShouldQueue
     private function uploadPhotos($params): void
     {
         $seller = Sellers::find($params['seller_id']);
+        if (!$seller) {
+            return;
+        }
+
+        $nmId = (int)($params['nmID'] ?? 0);
+        $sourceSupplierId = (int)($params['supplierID'] ?? 0);
+        if ($nmId <= 0 || $sourceSupplierId <= 0) {
+            return;
+        }
+
         $service = new WildberriesService($seller->wb_api_key, []);
-        $basket = Helper::getBasketNumber($params['supplierID']);
-        $info = WBContent::getCardInfo($params['supplierID']);
-        $photoCount = $info['media']['photo_count'];
+        $basket = Helper::getBasketNumber($sourceSupplierId);
+        $info = WBContent::getCardInfo($sourceSupplierId);
+        $photoCount = (int)($info['media']['photo_count'] ?? 0);
+        if ($photoCount <= 0) {
+            return;
+        }
+
         $data = [];
         for ($i = 1; $i <= $photoCount; $i++) {
             $data[] = "https://basket-{$basket['basket']}.wbbasket.ru/vol{$basket['small']}"
-                . "/part{$basket['mid']}/{$params['supplierID']}/images/big/{$i}.webp";
+                . "/part{$basket['mid']}/{$sourceSupplierId}/images/big/{$i}.webp";
         }
-        $service->uploadPhotos($params['nmID'], $data);
+        $service->uploadPhotos($nmId, $data);
     }
 
-    private function updateCard($cardsData, Sellers $seller, $sku = null, $nmID = null): void
+    private function updateCard($cardsData, Sellers $seller, $sourceSku = null, $queueWbSku = null): void
     {
         foreach ($cardsData as $card) {
-            $photo = "";
+            $photo = '';
             if (isset($card['photos']) && count($card['photos']) > 0) {
                 $photo = $card['photos'][0]['c246x328'];
-            } else {
-                $supplierVendorCode = (string) ($card['vendorCode'] ?? '');
-                $resolvedSku = $sku;
-                $resolvedNmID = empty($nmID) ? Helper::getVendorCode($supplierVendorCode) : $nmID;
-
-                // WB supplier: use nmID from WB card directly.
-                if (str_starts_with($supplierVendorCode, 'W')) {
-                    $resolvedNmID = (string) $card['nmID'];
-                }
-
-                // Sima-Land supplier: origSku -> wbSku, and pass sku=origSku / nmID=wbSku.
-                if (str_starts_with($supplierVendorCode, 'S')) {
-                    $origSku = Helper::getVendorCode($supplierVendorCode);
-                    $mapping = SkuMapping::where('origSku', $origSku)->first();
-                    if (!empty($mapping?->wbSku)) {
-                        $resolvedSku = (string) $origSku;
-                        $resolvedNmID = (string) $mapping->wbSku;
-                    }
-                }
-
-                $postData = [
-                    'supplierID' => $resolvedNmID,
-                    'nmID' => $resolvedNmID,
-                    'seller_id' => $seller->id
-                ];
-                self::dispatch('uploadPhotos', $postData)->onQueue('uploadPhotos');
-                self::dispatch('getCardList', [
-                    'seller_id' => $seller->id,
-                    'sku' => $resolvedSku,
-                    'nmID' => $resolvedNmID,
-                    'settings' => [
-                        'settings' => [
-                            'sort' => ['ascending' => true],
-                            'cursor' => [
-                                'limit' => 1
-                            ],
-                            'filter' => [
-                                'textSearch' => $card['vendorCode'],
-                                'withPhoto' => -1
-                            ]
-                        ]
-                    ]
-                ])->onQueue('updateCardsProcess')->delay(now()->addMinute());
             }
-            if (!empty($photo)) {
-                $data = [
-                    'updated_at' => $card['updatedAt'],
-                    'nmID' => $card['nmID'],
-                    'supplier' => Helper::getSupplier($card['vendorCode']),
-                    'supplierVendorCode' => $card['vendorCode'],
-                    'vendorCode' => Helper::getVendorCode($card['vendorCode']),
-                    'supplierName' => Helper::getSupplierName($card['vendorCode']),
-                    'productName' => $card['title'],
-                    'chrtID' => $card['sizes'][0]['chrtID'],
-                    'photo' => $photo,
-                    'sku' => $nmID
-                ];
-                $seller->cards()->firstOrCreate(
-                    ['nmID' => $card['nmID']],
-                    $data
-                );
+
+            $supplierVendorCode = (string)($card['vendorCode'] ?? '');
+            if ($supplierVendorCode === '') {
+                continue;
+            }
+
+            $data = [
+                'updated_at' => $card['updatedAt'] ?? now(),
+                'nmID' => $card['nmID'],
+                'sellerID' => $seller->id,
+                'supplier' => Helper::getSupplier($supplierVendorCode),
+                'supplierVendorCode' => $supplierVendorCode,
+                'vendorCode' => Helper::getVendorCode($supplierVendorCode),
+                'supplierName' => Helper::getSupplierName($supplierVendorCode),
+                'productName' => $card['title'] ?? '',
+                'chrtID' => $card['sizes'][0]['chrtID'] ?? 0,
+                'photo' => $photo,
+                // For clone flow: this is queueWbSku. For full sync calls it can be null.
+                'sku' => $queueWbSku,
+            ];
+
+            $seller->cards()->updateOrCreate(
+                ['nmID' => $card['nmID']],
+                $data
+            );
+
+            if ($photo === '') {
+                $photoSourceSupplierId = $this->resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
+                if ($photoSourceSupplierId > 0) {
+                    self::dispatch('uploadPhotos', [
+                        'supplierID' => $photoSourceSupplierId,
+                        'nmID' => (int)$card['nmID'],
+                        'seller_id' => $seller->id,
+                    ])->onQueue('uploadPhotos');
+                }
             }
         }
+    }
+
+    private function resolvePhotoSourceSupplierId(string $supplierVendorCode, $sourceSku = null, $queueWbSku = null): int
+    {
+        $supplierCode = strtoupper((string)($supplierVendorCode[0] ?? ''));
+
+        // Sima-Land: photos source is original supplier SKU from vendorCode (SM-L-<origSku>-1).
+        if ($supplierCode === 'S') {
+            return (int)Helper::getVendorCode($supplierVendorCode);
+        }
+
+        // Wildberries supplier: photo source is vendor code payload SKU if possible.
+        if ($supplierCode === 'W') {
+            $vendorSku = (int)Helper::getVendorCode($supplierVendorCode);
+            if ($vendorSku > 0) {
+                return $vendorSku;
+            }
+        }
+
+        // Fallbacks for legacy calls.
+        if (!empty($sourceSku)) {
+            return (int)$sourceSku;
+        }
+        return (int)$queueWbSku;
     }
 
     private function updatePrice(): void

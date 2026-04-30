@@ -426,8 +426,8 @@ class CloneProductsJob implements ShouldQueue
                         );
                         WbJob::dispatch('getCardList', [
                             'seller_id' => $seller->id,
-                            'sku' => $info['vendor_code'],
-                            'nmID' => $product->sku,
+                            'sourceSku' => $info['vendor_code'],
+                            'queueWbSku' => $product->sku,
                             'settings' => [
                                 'settings' => [
                                     'filter' => [
