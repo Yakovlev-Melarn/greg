@@ -2,12 +2,16 @@
 
 namespace App\Jobs;
 
+use App\DTO\Wb\CardListContext;
+use App\DTO\Wb\PhotoUploadPayload;
+use App\DTO\Wb\PriceUpdatePayload;
 use App\Libs\Helper;
 use App\Libs\WBContent;
 use App\Models\Sellers;
 use App\Models\SkuMapping;
 use App\Models\SystemNotification;
 use App\Services\WildberriesService;
+use App\Services\Wb\CardSyncScheduler;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Collection;
@@ -15,6 +19,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
@@ -85,58 +90,53 @@ class WbJob implements ShouldQueue
     /**
      * @throws ConnectionException
      */
-    private function getCardList($params): void
+    private function getCardList(array $params): void
     {
-        if ($params['seller_id']) {
-            // New explicit flow fields:
-            // - sourceSku: original supplier SKU (e.g. Sima sid)
-            // - queueWbSku: temporary WB sku from product queue before real card nmID is known
-            // Backward compatibility:
-            // - sku -> sourceSku
-            // - nmID -> queueWbSku
-            $sourceSku = empty($params['sourceSku']) ? ($params['sku'] ?? null) : $params['sourceSku'];
-            $queueWbSku = empty($params['queueWbSku']) ? ($params['nmID'] ?? null) : $params['queueWbSku'];
-            $seller = Sellers::find($params['seller_id']);
-            if (!$seller) {
-                Log::warning('WbJob getCardList skipped: seller not found', ['params' => $params]);
-                return;
-            }
-            $service = new WildberriesService($seller->wb_api_key, []);
-            $result = $service->getCardList($params['settings']);
-            $cards = $result['data']['cards'] ?? [];
-            $cursorData = $result['data']['cursor'] ?? [];
-            $cursor = $cursorData['nmID'] ?? null;
-            $updatedAt = $cursorData['updatedAt'] ?? null;
-            $total = (int)($cursorData['total'] ?? 0);
-
-            $this->updateCard($cards, $seller, $sourceSku, $queueWbSku);
-            if ($total == 100) {
-                self::dispatch(self::ACTION_GET_CARD_LIST, [
-                    'seller_id' => $params['seller_id'],
-                    'sourceSku' => $sourceSku,
-                    'queueWbSku' => $queueWbSku,
-                    'settings' => [
-                        'settings' => [
-                            'sort' => ['ascending' => true],
-                            'cursor' => [
-                                'limit' => 100,
-                                'updatedAt' => $updatedAt,
-                                'nmID' => $cursor
-                            ],
-                            'filter' => ['withPhoto' => -1]
-                        ]
-                    ]
-                ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
-            }
-        } else {
+        $context = $this->buildCardListContext($params);
+        if (!$context) {
             echo 'error seller_id is null';
+            return;
+        }
+
+        $seller = Sellers::find($context->sellerId);
+        if (!$seller) {
+            Log::warning('WbJob getCardList skipped: seller not found', ['params' => $params]);
+            return;
+        }
+
+        $service = new WildberriesService($seller->wb_api_key, []);
+        $result = $service->getCardList($context->settings);
+        $cards = $result['data']['cards'] ?? [];
+        $cursorData = $result['data']['cursor'] ?? [];
+        $cursor = $cursorData['nmID'] ?? null;
+        $updatedAt = $cursorData['updatedAt'] ?? null;
+        $total = (int)($cursorData['total'] ?? 0);
+
+        $this->updateCard($cards, $seller, $context->sourceSku, $context->queueWbSku);
+        if ($total == 100) {
+            self::dispatch(self::ACTION_GET_CARD_LIST, [
+                'seller_id' => $context->sellerId,
+                'sourceSku' => $context->sourceSku,
+                'queueWbSku' => $context->queueWbSku,
+                'settings' => [
+                    'settings' => [
+                        'sort' => ['ascending' => true],
+                        'cursor' => [
+                            'limit' => 100,
+                            'updatedAt' => $updatedAt,
+                            'nmID' => $cursor
+                        ],
+                        'filter' => ['withPhoto' => -1]
+                    ]
+                ]
+            ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
         }
     }
 
     /**
      * @throws ConnectionException
      */
-    private function updateStocks($params): void
+    private function updateStocks(array $params): void
     {
         if (empty($params['seller_id'])) {
             return;
@@ -205,33 +205,28 @@ class WbJob implements ShouldQueue
     /**
      * @throws ConnectionException
      */
-    private function uploadPhotos($params): void
+    private function uploadPhotos(array $params): void
     {
-        $seller = Sellers::find($params['seller_id']);
+        $payload = $this->buildPhotoUploadPayload($params);
+        if (!$payload) {
+            Log::warning('WbJob uploadPhotos skipped: invalid payload', ['params' => $params]);
+            return;
+        }
+
+        $seller = Sellers::find($payload->sellerId);
         if (!$seller) {
             Log::warning('WbJob uploadPhotos skipped: seller not found', ['params' => $params]);
             return;
         }
 
-        $nmId = (int)($params['nmID'] ?? 0);
-        $sourceSupplierId = (int)($params['supplierID'] ?? 0);
-        if ($nmId <= 0 || $sourceSupplierId <= 0) {
-            Log::warning('WbJob uploadPhotos skipped: invalid nmID/supplierID', [
-                'nmID' => $nmId,
-                'supplierID' => $sourceSupplierId,
-                'params' => $params,
-            ]);
-            return;
-        }
-
         $service = new WildberriesService($seller->wb_api_key, []);
-        $basket = Helper::getBasketNumber($sourceSupplierId);
-        $info = WBContent::getCardInfo($sourceSupplierId);
+        $basket = Helper::getBasketNumber($payload->supplierId);
+        $info = WBContent::getCardInfo($payload->supplierId);
         $photoCount = (int)($info['media']['photo_count'] ?? 0);
         if ($photoCount <= 0) {
             Log::warning('WbJob uploadPhotos skipped: source has no photos', [
-                'sourceSupplierId' => $sourceSupplierId,
-                'nmID' => $nmId,
+                'sourceSupplierId' => $payload->supplierId,
+                'nmID' => $payload->nmId,
             ]);
             return;
         }
@@ -239,12 +234,17 @@ class WbJob implements ShouldQueue
         $data = [];
         for ($i = 1; $i <= $photoCount; $i++) {
             $data[] = "https://basket-{$basket['basket']}.wbbasket.ru/vol{$basket['small']}"
-                . "/part{$basket['mid']}/{$sourceSupplierId}/images/big/{$i}.webp";
+                . "/part{$basket['mid']}/{$payload->supplierId}/images/big/{$i}.webp";
         }
-        $service->uploadPhotos($nmId, $data);
+        $service->uploadPhotos($payload->nmId, $data);
     }
 
-    private function updateCard($cardsData, Sellers $seller, $sourceSku = null, $queueWbSku = null): void
+    private function updateCard(
+        array $cardsData,
+        Sellers $seller,
+        int|string|null $sourceSku = null,
+        int|string|null $queueWbSku = null
+    ): void
     {
         foreach ($cardsData as $card) {
             $photo = '';
@@ -267,23 +267,12 @@ class WbJob implements ShouldQueue
                     ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
 
                     // Re-fetch this exact card after media sync and save only when photo appears.
-                    self::dispatch(self::ACTION_GET_CARD_LIST, [
-                        'seller_id' => $seller->id,
-                        'sourceSku' => $sourceSku,
-                        'queueWbSku' => $queueWbSku,
-                        'settings' => [
-                            'settings' => [
-                                'sort' => ['ascending' => true],
-                                'cursor' => [
-                                    'limit' => 1,
-                                ],
-                                'filter' => [
-                                    'textSearch' => $supplierVendorCode,
-                                    'withPhoto' => -1,
-                                ],
-                            ],
-                        ],
-                    ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS)->delay(now()->addMinute());
+                    (new CardSyncScheduler())->dispatchFollowUpCardFetch(
+                        sellerId: $seller->id,
+                        sourceSku: $sourceSku,
+                        queueWbSku: $queueWbSku,
+                        supplierVendorCode: $supplierVendorCode
+                    );
                 } else {
                     Log::warning('WbJob updateCard skipped: photo source id is not resolved', [
                         'seller_id' => $seller->id,
@@ -320,7 +309,11 @@ class WbJob implements ShouldQueue
         }
     }
 
-    private function resolvePhotoSourceSupplierId(string $supplierVendorCode, $sourceSku = null, $queueWbSku = null): int
+    private function resolvePhotoSourceSupplierId(
+        string $supplierVendorCode,
+        int|string|null $sourceSku = null,
+        int|string|null $queueWbSku = null
+    ): int
     {
         $supplierCode = strtoupper((string)($supplierVendorCode[0] ?? ''));
 
@@ -374,11 +367,11 @@ class WbJob implements ShouldQueue
         foreach ($skuMappings as $skuMapping) {
             try {
                 $pricePayload = $this->buildPricePayloadForMapping($skuMapping);
-                $groupedBySeller[$pricePayload['sellerId']][] = [
-                    'mappingId' => $skuMapping->id,
+                $groupedBySeller[$pricePayload->sellerId][] = [
+                    'mappingId' => $pricePayload->mappingId,
                     'priceData' => [
-                        'nmID' => $pricePayload['nmID'],
-                        'price' => $pricePayload['price'],
+                        'nmID' => $pricePayload->nmId,
+                        'price' => $pricePayload->price,
                     ],
                 ];
             } catch (\Exception $e) {
@@ -451,7 +444,7 @@ class WbJob implements ShouldQueue
         self::dispatch(self::ACTION_UPDATE_PRICE, [])->onQueue(self::QUEUE_UPDATE_PRICE)->delay(now()->addHour());
     }
 
-    private function buildPricePayloadForMapping(SkuMapping $skuMapping): array
+    private function buildPricePayloadForMapping(SkuMapping $skuMapping): PriceUpdatePayload
     {
         $sellPrice = $this->calculateSellPrice($skuMapping);
 
@@ -466,11 +459,12 @@ class WbJob implements ShouldQueue
             throw new RuntimeException('Не удалось получить sellerID или nmID');
         }
 
-        return [
-            'sellerId' => $sellerId,
-            'nmID' => $nmID,
-            'price' => $sellPrice,
-        ];
+        return new PriceUpdatePayload(
+            sellerId: (int)$sellerId,
+            nmId: (int)$nmID,
+            price: $sellPrice,
+            mappingId: (int)$skuMapping->id,
+        );
     }
 
     private function calculateSellPrice(SkuMapping $skuMapping): int
@@ -483,7 +477,7 @@ class WbJob implements ShouldQueue
         return (int)ceil($skuMapping->total_cost);
     }
 
-    private function notifyPriceUpdateStarted($startedAt, int $currentAttempt, int $maxAttempts): void
+    private function notifyPriceUpdateStarted(Carbon $startedAt, int $currentAttempt, int $maxAttempts): void
     {
         SystemNotification::create([
             'title' => 'Запущено обновление цен',
@@ -499,7 +493,7 @@ class WbJob implements ShouldQueue
     }
 
     private function notifyPriceUpdateFinished(
-        $startedAt,
+        Carbon $startedAt,
         int $currentAttempt,
         int $maxAttempts,
         int $processedBatches,
@@ -525,5 +519,43 @@ class WbJob implements ShouldQueue
                 'max_batches_per_run' => $maxBatchesPerRun,
             ],
         ]);
+    }
+
+    private function buildCardListContext(array $params): ?CardListContext
+    {
+        $sellerId = (int)($params['seller_id'] ?? 0);
+        if ($sellerId <= 0) {
+            return null;
+        }
+
+        // Backward compatibility:
+        // - sku -> sourceSku
+        // - nmID -> queueWbSku
+        $sourceSku = $params['sourceSku'] ?? ($params['sku'] ?? null);
+        $queueWbSku = $params['queueWbSku'] ?? ($params['nmID'] ?? null);
+        $settings = (array)($params['settings'] ?? []);
+
+        return new CardListContext(
+            sellerId: $sellerId,
+            sourceSku: $sourceSku,
+            queueWbSku: $queueWbSku,
+            settings: $settings,
+        );
+    }
+
+    private function buildPhotoUploadPayload(array $params): ?PhotoUploadPayload
+    {
+        $sellerId = (int)($params['seller_id'] ?? 0);
+        $nmId = (int)($params['nmID'] ?? 0);
+        $supplierId = (int)($params['supplierID'] ?? 0);
+        if ($sellerId <= 0 || $nmId <= 0 || $supplierId <= 0) {
+            return null;
+        }
+
+        return new PhotoUploadPayload(
+            sellerId: $sellerId,
+            nmId: $nmId,
+            supplierId: $supplierId,
+        );
     }
 }
