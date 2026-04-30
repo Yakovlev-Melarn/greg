@@ -92,6 +92,7 @@ class WbJob implements ShouldQueue
      */
     private function getCardList(array $params): void
     {
+        // Нормализуем входной payload (новые + legacy-поля), чтобы не ломать старые вызовы.
         $context = $this->buildCardListContext($params);
         if (!$context) {
             echo 'error seller_id is null';
@@ -112,8 +113,10 @@ class WbJob implements ShouldQueue
         $updatedAt = $cursorData['updatedAt'] ?? null;
         $total = (int)($cursorData['total'] ?? 0);
 
+        // Обновляем/сохраняем карточки только после того, как фото уже появилось в WB.
         $this->updateCard($cards, $seller, $context->sourceSku, $context->queueWbSku);
         if ($total == 100) {
+            // Пагинация WB: если получили полный лимит, запрашиваем следующую страницу.
             self::dispatch(self::ACTION_GET_CARD_LIST, [
                 'seller_id' => $context->sellerId,
                 'sourceSku' => $context->sourceSku,
@@ -258,6 +261,7 @@ class WbJob implements ShouldQueue
             }
 
             if ($photo === '') {
+                // Фото ещё не готовы: запускаем загрузку и откладываем повторный fetch карточки.
                 $photoSourceSupplierId = $this->resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
                 if ($photoSourceSupplierId > 0) {
                     self::dispatch(self::ACTION_UPLOAD_PHOTOS, [
@@ -283,7 +287,7 @@ class WbJob implements ShouldQueue
                     ]);
                 }
 
-                // Do not save card until photo is available.
+                // Не сохраняем карточку до появления фото.
                 continue;
             }
 
@@ -317,8 +321,7 @@ class WbJob implements ShouldQueue
     {
         $supplierCode = strtoupper((string)($supplierVendorCode[0] ?? ''));
 
-        // Sima-Land clone flow:
-        // photo source must be WB queue SKU when available.
+        // Для Sima-Land в clone-потоке приоритет у queueWbSku, затем sourceSku.
         if ($supplierCode === 'S') {
             if (!empty($queueWbSku)) {
                 return (int)$queueWbSku;
@@ -329,7 +332,7 @@ class WbJob implements ShouldQueue
             return (int)Helper::getVendorCode($supplierVendorCode);
         }
 
-        // Wildberries supplier: photo source is vendor code payload SKU if possible.
+        // Для WB пытаемся взять SKU из vendorCode.
         if ($supplierCode === 'W') {
             $vendorSku = (int)Helper::getVendorCode($supplierVendorCode);
             if ($vendorSku > 0) {
@@ -337,7 +340,7 @@ class WbJob implements ShouldQueue
             }
         }
 
-        // Fallbacks for legacy calls.
+        // Fallback для legacy-вызовов.
         if (!empty($sourceSku)) {
             return (int)$sourceSku;
         }
@@ -528,7 +531,7 @@ class WbJob implements ShouldQueue
             return null;
         }
 
-        // Backward compatibility:
+        // Поддержка старого формата payload:
         // - sku -> sourceSku
         // - nmID -> queueWbSku
         $sourceSku = $params['sourceSku'] ?? ($params['sku'] ?? null);
