@@ -15,6 +15,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -191,12 +192,18 @@ class WbJob implements ShouldQueue
     {
         $seller = Sellers::find($params['seller_id']);
         if (!$seller) {
+            Log::warning('WbJob uploadPhotos skipped: seller not found', ['params' => $params]);
             return;
         }
 
         $nmId = (int)($params['nmID'] ?? 0);
         $sourceSupplierId = (int)($params['supplierID'] ?? 0);
         if ($nmId <= 0 || $sourceSupplierId <= 0) {
+            Log::warning('WbJob uploadPhotos skipped: invalid nmID/supplierID', [
+                'nmID' => $nmId,
+                'supplierID' => $sourceSupplierId,
+                'params' => $params,
+            ]);
             return;
         }
 
@@ -205,6 +212,10 @@ class WbJob implements ShouldQueue
         $info = WBContent::getCardInfo($sourceSupplierId);
         $photoCount = (int)($info['media']['photo_count'] ?? 0);
         if ($photoCount <= 0) {
+            Log::warning('WbJob uploadPhotos skipped: source has no photos', [
+                'sourceSupplierId' => $sourceSupplierId,
+                'nmID' => $nmId,
+            ]);
             return;
         }
 
@@ -229,6 +240,47 @@ class WbJob implements ShouldQueue
                 continue;
             }
 
+            if ($photo === '') {
+                $photoSourceSupplierId = $this->resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
+                if ($photoSourceSupplierId > 0) {
+                    self::dispatch('uploadPhotos', [
+                        'supplierID' => $photoSourceSupplierId,
+                        'nmID' => (int)$card['nmID'],
+                        'seller_id' => $seller->id,
+                    ])->onQueue('updateCardsProcess');
+
+                    // Re-fetch this exact card after media sync and save only when photo appears.
+                    self::dispatch('getCardList', [
+                        'seller_id' => $seller->id,
+                        'sourceSku' => $sourceSku,
+                        'queueWbSku' => $queueWbSku,
+                        'settings' => [
+                            'settings' => [
+                                'sort' => ['ascending' => true],
+                                'cursor' => [
+                                    'limit' => 1,
+                                ],
+                                'filter' => [
+                                    'textSearch' => $supplierVendorCode,
+                                    'withPhoto' => -1,
+                                ],
+                            ],
+                        ],
+                    ])->onQueue('updateCardsProcess')->delay(now()->addMinute());
+                } else {
+                    Log::warning('WbJob updateCard skipped: photo source id is not resolved', [
+                        'seller_id' => $seller->id,
+                        'supplierVendorCode' => $supplierVendorCode,
+                        'sourceSku' => $sourceSku,
+                        'queueWbSku' => $queueWbSku,
+                        'nmID' => $card['nmID'] ?? null,
+                    ]);
+                }
+
+                // Do not save card until photo is available.
+                continue;
+            }
+
             $data = [
                 'updated_at' => $card['updatedAt'] ?? now(),
                 'nmID' => $card['nmID'],
@@ -248,17 +300,6 @@ class WbJob implements ShouldQueue
                 ['nmID' => $card['nmID']],
                 $data
             );
-
-            if ($photo === '') {
-                $photoSourceSupplierId = $this->resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
-                if ($photoSourceSupplierId > 0) {
-                    self::dispatch('uploadPhotos', [
-                        'supplierID' => $photoSourceSupplierId,
-                        'nmID' => (int)$card['nmID'],
-                        'seller_id' => $seller->id,
-                    ])->onQueue('uploadPhotos');
-                }
-            }
         }
     }
 
@@ -266,8 +307,15 @@ class WbJob implements ShouldQueue
     {
         $supplierCode = strtoupper((string)($supplierVendorCode[0] ?? ''));
 
-        // Sima-Land: photos source is original supplier SKU from vendorCode (SM-L-<origSku>-1).
+        // Sima-Land clone flow:
+        // photo source must be WB queue SKU when available.
         if ($supplierCode === 'S') {
+            if (!empty($queueWbSku)) {
+                return (int)$queueWbSku;
+            }
+            if (!empty($sourceSku)) {
+                return (int)$sourceSku;
+            }
             return (int)Helper::getVendorCode($supplierVendorCode);
         }
 

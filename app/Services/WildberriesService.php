@@ -29,13 +29,15 @@ class WildberriesService
     public function addProductFromSource(array $sourceData, ?string $sku = null): array
     {
         $productData = $this->transformSourceData($sourceData, $sku);
-        $response = Http::withHeaders([
-            'Authorization' => $this->apiKey,
-            'Content-Type' => 'application/json',
-        ])
-            ->timeout(30)
-            ->post($this->baseUrl . 'cards/upload', [$productData]);
-        return $this->handleResponse($response, $productData);
+        $result = $this->sendCardsUpload([$productData], 30);
+        if ($this->needsDimensionsArrayFormat($result)) {
+            $dimensionsArrayPayload = $this->withDimensionsArrayPayload([$productData]);
+            $retryResult = $this->sendCardsUpload($dimensionsArrayPayload, 30);
+            if (($retryResult['success'] ?? false) === true) {
+                return $retryResult;
+            }
+        }
+        return $result;
     }
 
     /**
@@ -81,16 +83,154 @@ class WildberriesService
             ];
         }
 
-        $response = Http::withHeaders([
-            'Authorization' => $this->apiKey,
-            'Content-Type' => 'application/json',
-        ])
-            ->timeout(60)
-            ->post($this->baseUrl . 'cards/upload', $payload);
-        $result = $this->handleResponse($response, $payload);
+        $result = $this->sendCardsUpload($payload, 60);
+        if ($this->needsDimensionsArrayFormat($result)) {
+            $dimensionsArrayPayload = $this->withDimensionsArrayPayload($payload);
+            $retryResult = $this->sendCardsUpload($dimensionsArrayPayload, 60);
+            if (($retryResult['success'] ?? false) === true) {
+                $result = $retryResult;
+            }
+        }
+
+        // WB may reject whole batch with a generic weightBrutto message.
+        // In this case fallback to per-card upload to isolate bad items.
+        if ($this->needsDimensionsArrayFormat($result) && count($payload) > 1) {
+            $result = $this->uploadCardsIndividually($payload, $itemsMeta, $skippedItems);
+        }
+
         $result['items'] = $itemsMeta;
         $result['skipped_items'] = $skippedItems;
         return $result;
+    }
+
+    /**
+     * @throws ConnectionException
+     */
+    private function sendCardsUpload(array $payload, int $timeout): array
+    {
+        $attempts = 3;
+        $lastExceptionMessage = null;
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $response = Http::withHeaders([
+                    'Authorization' => $this->apiKey,
+                    'Content-Type' => 'application/json',
+                ])
+                    ->timeout($timeout + (($attempt - 1) * 15))
+                    ->post($this->baseUrl . 'cards/upload', $payload);
+
+                return $this->handleResponse($response, $payload);
+            } catch (ConnectionException $e) {
+                $lastExceptionMessage = $e->getMessage();
+                if ($attempt < $attempts) {
+                    // Small backoff for transient WB TLS/network issues.
+                    sleep(2 * $attempt);
+                    continue;
+                }
+            }
+        }
+
+        return [
+            'success' => false,
+            'http_code' => 0,
+            'error' => [
+                'error' => 1,
+                'errorText' => $lastExceptionMessage ?? 'Network timeout while uploading cards',
+                'additionalErrors' => [],
+            ],
+            'original_data' => $payload,
+        ];
+    }
+
+    private function needsDimensionsArrayFormat(array $result): bool
+    {
+        if (($result['success'] ?? false) === true) {
+            return false;
+        }
+        $errorText = mb_strtolower((string)($result['error']['errorText'] ?? ''));
+        return str_contains($errorText, 'вес с упаковкой') &&
+            str_contains($errorText, 'variants[i].dimensions[j].weightbrutto');
+    }
+
+    private function withDimensionsArrayPayload(array $payload): array
+    {
+        foreach ($payload as &$card) {
+            if (empty($card['variants']) || !is_array($card['variants'])) {
+                continue;
+            }
+            foreach ($card['variants'] as &$variant) {
+                if (empty($variant['dimensions']) || !is_array($variant['dimensions'])) {
+                    continue;
+                }
+                if (array_is_list($variant['dimensions'])) {
+                    continue;
+                }
+                $sizesCount = isset($variant['sizes']) && is_array($variant['sizes'])
+                    ? max(1, count($variant['sizes']))
+                    : 1;
+                $variant['dimensions'] = array_fill(0, $sizesCount, $variant['dimensions']);
+            }
+            unset($variant);
+        }
+        unset($card);
+
+        return $payload;
+    }
+
+    private function uploadCardsIndividually(array $payload, array $itemsMeta, array $initialSkippedItems): array
+    {
+        $successfulItems = [];
+        $failedItems = $initialSkippedItems;
+        $lastError = null;
+
+        foreach ($payload as $index => $cardPayload) {
+            $singlePayload = [$cardPayload];
+            $singleResult = $this->sendCardsUpload($singlePayload, 30);
+
+            if ($this->needsDimensionsArrayFormat($singleResult)) {
+                $singleRetryPayload = $this->withDimensionsArrayPayload($singlePayload);
+                $singleRetryResult = $this->sendCardsUpload($singleRetryPayload, 30);
+                if (($singleRetryResult['success'] ?? false) === true) {
+                    $singleResult = $singleRetryResult;
+                }
+            }
+
+            if (($singleResult['success'] ?? false) === true) {
+                if (isset($itemsMeta[$index])) {
+                    $successfulItems[] = $itemsMeta[$index];
+                }
+                continue;
+            }
+
+            $lastError = $singleResult['error'] ?? ['message' => 'Unknown error'];
+            $meta = $itemsMeta[$index] ?? ['queueSku' => null, 'sid' => null];
+            $failedItems[] = [
+                'queueSku' => $meta['queueSku'] ?? null,
+                'sid' => $meta['sid'] ?? null,
+                'error' => $lastError['errorText'] ?? ($lastError['message'] ?? 'Unknown error'),
+            ];
+        }
+
+        if (empty($successfulItems)) {
+            return [
+                'success' => false,
+                'http_code' => 400,
+                'error' => $lastError ?? ['message' => 'Batch and per-item upload failed'],
+                'original_data' => $payload,
+                'items' => [],
+                'skipped_items' => $failedItems,
+            ];
+        }
+
+        return [
+            'success' => true,
+            'http_code' => 200,
+            'data' => ['partial' => !empty($failedItems)],
+            'original_data' => $payload,
+            'items' => $successfulItems,
+            'skipped_items' => $failedItems,
+        ];
     }
 
     /**
@@ -158,7 +298,9 @@ class WildberriesService
         SimService::validateResponse($response);
         $item = $response['items'][0];
         $result = SimService::getProductDimensions($item, $item['product_volume'] ?? 0, (string)$sku);
-        $weightBrutto = max(0.001, (float)($result['weight_kg'] ?? 0.5));
+        // WB rejects too-small brutto values with a generic weightBrutto format error.
+        // Keep kilograms, but enforce a safe minimum for API validation.
+        $weightBrutto = max(0.1, (float)($result['weight_kg'] ?? 0.5));
 
         return [
             'length' => floor($result['length']) > 0 ? floor($result['length']) : 1,
@@ -182,12 +324,27 @@ class WildberriesService
     private function extractCharacteristics(array $source): array
     {
         $result = [];
-        $blockedCharacteristicIds = [88952, 90849, 90846, 90745];
+        $blockedCharacteristicIds = [
+            // Weight-related characteristics (can conflict with dimensions.weightBrutto).
+            88952, // Вес с упаковкой (alt for some subjects)
+            88953, // Вес без упаковки / related weight field
+            89064, // Вес (subject-dependent meaning)
+            // Package dimensions (subject-dependent IDs).
+            90849, // Ширина упаковки (old set)
+            90846, // Длина упаковки (old set)
+            90745, // Высота упаковки (old set)
+            90673, // Ширина упаковки (new set)
+            90630, // Длина упаковки (new set)
+            90652, // Высота упаковки (new set)
+        ];
         $blockedNames = [
             'вес с упаковкой',
+            'вес без упаковки',
+            'вес',
             'длина упаковки',
             'ширина упаковки',
             'высота упаковки',
+            'глубина упаковки',
         ];
         $chars = $this->getCharacteristics((int)$source['data']['subject_id']);
         if (!empty($source['options'])) {
