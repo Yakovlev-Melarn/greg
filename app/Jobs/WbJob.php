@@ -23,15 +23,25 @@ class WbJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    private const ACTION_UPDATE_PRICE = 'updatePrice';
+    private const ACTION_GET_CARD_LIST = 'getCardList';
+    private const ACTION_UPLOAD_PHOTOS = 'uploadPhotos';
+    private const QUEUE_UPDATE_CARDS_PROCESS = 'updateCardsProcess';
+    private const QUEUE_UPDATE_PRICE = 'updatePrice';
+    private const PRICE_UPDATE_DEFAULT_BATCH_SIZE = 1000;
+    private const PRICE_UPDATE_DEFAULT_MAX_BATCHES_PER_RUN = 20;
+    private const PRICE_MARGIN = 0.25;
+    private const STOCK_CHUNK_SIZE = 100;
+    private const STOCK_UPDATE_CHUNK_SIZE = 1000;
+    private const STOCK_MAX_AMOUNT = 5;
+
     public int $tries = 10;
     public int $timeout = 3600;
 
     public function __construct(
         private readonly string $action,
         private readonly array  $params = []
-    )
-    {
-    }
+    ) {}
 
     public function handle(): void
     {
@@ -40,19 +50,19 @@ class WbJob implements ShouldQueue
 
     public function tries(): int
     {
-        return $this->action === 'updatePrice' ? 5 : $this->tries;
+        return $this->action === self::ACTION_UPDATE_PRICE ? 5 : $this->tries;
     }
 
     public function backoff(): array|int
     {
-        return $this->action === 'updatePrice'
+        return $this->action === self::ACTION_UPDATE_PRICE
             ? [30, 120, 300, 600]
             : 0;
     }
 
     public function failed(Throwable $exception): void
     {
-        if ($this->action !== 'updatePrice') {
+        if ($this->action !== self::ACTION_UPDATE_PRICE) {
             return;
         }
 
@@ -61,7 +71,7 @@ class WbJob implements ShouldQueue
 
         SystemNotification::create([
             'title' => 'Ошибка обновления цен',
-            'message' => "Джоба завершилась с ошибкой после попытки {$currentAttempt}/{$maxAttempts}: ".$exception->getMessage(),
+            'message' => "Джоба завершилась с ошибкой после попытки {$currentAttempt}/{$maxAttempts}: " . $exception->getMessage(),
             'level' => 'error',
             'source' => 'wb_update_price_job',
             'meta' => [
@@ -87,14 +97,21 @@ class WbJob implements ShouldQueue
             $sourceSku = empty($params['sourceSku']) ? ($params['sku'] ?? null) : $params['sourceSku'];
             $queueWbSku = empty($params['queueWbSku']) ? ($params['nmID'] ?? null) : $params['queueWbSku'];
             $seller = Sellers::find($params['seller_id']);
+            if (!$seller) {
+                Log::warning('WbJob getCardList skipped: seller not found', ['params' => $params]);
+                return;
+            }
             $service = new WildberriesService($seller->wb_api_key, []);
             $result = $service->getCardList($params['settings']);
-            $cursor = $result['data']['cursor']['nmID'];
-            $updatedAt = $result['data']['cursor']['updatedAt'];
-            $total = $result['data']['cursor']['total'];
-            $this->updateCard($result['data']['cards'], $seller, $sourceSku, $queueWbSku);
+            $cards = $result['data']['cards'] ?? [];
+            $cursorData = $result['data']['cursor'] ?? [];
+            $cursor = $cursorData['nmID'] ?? null;
+            $updatedAt = $cursorData['updatedAt'] ?? null;
+            $total = (int)($cursorData['total'] ?? 0);
+
+            $this->updateCard($cards, $seller, $sourceSku, $queueWbSku);
             if ($total == 100) {
-                self::dispatch('getCardList', [
+                self::dispatch(self::ACTION_GET_CARD_LIST, [
                     'seller_id' => $params['seller_id'],
                     'sourceSku' => $sourceSku,
                     'queueWbSku' => $queueWbSku,
@@ -109,7 +126,7 @@ class WbJob implements ShouldQueue
                             'filter' => ['withPhoto' => -1]
                         ]
                     ]
-                ])->onQueue('updateCardsProcess');
+                ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
             }
         } else {
             echo 'error seller_id is null';
@@ -149,7 +166,7 @@ class WbJob implements ShouldQueue
     private function fetchStockQuantities(Collection $cards, array $vendorToChrtMap): array
     {
         $vendorCodes = $cards->pluck('vendorCode')->toArray();
-        $chunks = array_chunk($vendorCodes, 100);
+        $chunks = array_chunk($vendorCodes, self::STOCK_CHUNK_SIZE);
         $result = [];
         $total = count($chunks);
         echo "Очередь на запрос из " . $total . " пачек\n";
@@ -162,7 +179,7 @@ class WbJob implements ShouldQueue
                     $chrtID = $vendorToChrtMap[$vendorCode];
                     $result[] = [
                         'chrtId' => $chrtID,
-                        'amount' => $quantity > 5 ? 5 : 0
+                        'amount' => $quantity > self::STOCK_MAX_AMOUNT ? self::STOCK_MAX_AMOUNT : 0
                     ];
                 }
             }
@@ -175,7 +192,7 @@ class WbJob implements ShouldQueue
      */
     private function sendStockUpdates(Sellers $seller, array $stockData): void
     {
-        $chunks = array_chunk($stockData, 1000);
+        $chunks = array_chunk($stockData, self::STOCK_UPDATE_CHUNK_SIZE);
         $service = new WildberriesService($seller->wb_api_key, []);
         $total = count($chunks);
         echo "Очередь на отправку из " . $total . " пачек\n";
@@ -243,14 +260,14 @@ class WbJob implements ShouldQueue
             if ($photo === '') {
                 $photoSourceSupplierId = $this->resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
                 if ($photoSourceSupplierId > 0) {
-                    self::dispatch('uploadPhotos', [
+                    self::dispatch(self::ACTION_UPLOAD_PHOTOS, [
                         'supplierID' => $photoSourceSupplierId,
                         'nmID' => (int)$card['nmID'],
                         'seller_id' => $seller->id,
-                    ])->onQueue('updateCardsProcess');
+                    ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
 
                     // Re-fetch this exact card after media sync and save only when photo appears.
-                    self::dispatch('getCardList', [
+                    self::dispatch(self::ACTION_GET_CARD_LIST, [
                         'seller_id' => $seller->id,
                         'sourceSku' => $sourceSku,
                         'queueWbSku' => $queueWbSku,
@@ -266,7 +283,7 @@ class WbJob implements ShouldQueue
                                 ],
                             ],
                         ],
-                    ])->onQueue('updateCardsProcess')->delay(now()->addMinute());
+                    ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS)->delay(now()->addMinute());
                 } else {
                     Log::warning('WbJob updateCard skipped: photo source id is not resolved', [
                         'seller_id' => $seller->id,
@@ -339,17 +356,7 @@ class WbJob implements ShouldQueue
         $startedAt = now();
         $currentAttempt = $this->attempts();
         $maxAttempts = $this->tries();
-        SystemNotification::create([
-            'title' => 'Запущено обновление цен',
-            'message' => "Джоба обновления цен стартовала (попытка {$currentAttempt}/{$maxAttempts}).",
-            'level' => 'info',
-            'source' => 'wb_update_price_job',
-            'meta' => [
-                'started_at' => $startedAt->toDateTimeString(),
-                'attempt' => $currentAttempt,
-                'max_attempts' => $maxAttempts,
-            ],
-        ]);
+        $this->notifyPriceUpdateStarted($startedAt, $currentAttempt, $maxAttempts);
 
         $skuMappings = SkuMapping::with('card')
             ->where('needUpdatePrice', 1)
@@ -358,36 +365,20 @@ class WbJob implements ShouldQueue
         $groupedBySeller = [];
         $processedBatches = 0;
         $reachedBatchLimit = false;
-        $batchSize = max(1, min((int) env('WB_UPDATE_PRICE_BATCH_SIZE', 1000), 1000));
-        $maxBatchesPerRun = max(1, (int) env('WB_UPDATE_PRICE_MAX_BATCHES_PER_RUN', 20));
+        $batchSize = max(
+            1,
+            min((int) env('WB_UPDATE_PRICE_BATCH_SIZE', self::PRICE_UPDATE_DEFAULT_BATCH_SIZE), self::PRICE_UPDATE_DEFAULT_BATCH_SIZE)
+        );
+        $maxBatchesPerRun = max(1, (int) env('WB_UPDATE_PRICE_MAX_BATCHES_PER_RUN', self::PRICE_UPDATE_DEFAULT_MAX_BATCHES_PER_RUN));
 
         foreach ($skuMappings as $skuMapping) {
-            $calculatedPrice = $skuMapping->total_cost - ($skuMapping->total_cost * 0.25);
-            if ($calculatedPrice < $skuMapping->wbPrice) {
-                $sellPrice = $skuMapping->wbPrice + ($skuMapping->wbPrice * 0.25);
-            } else {
-                $sellPrice = $skuMapping->total_cost;
-            }
-            $sellPrice = ceil($sellPrice);
-
             try {
-                $card = $skuMapping->card;
-                if (!$card) {
-                    throw new \Exception('Не удалось получить карточку для skuMapping');
-                }
-
-                $sellerId = $card->sellerID;
-                $nmID = $card->nmID;
-
-                if (!$sellerId || !$nmID) {
-                    throw new \Exception('Не удалось получить sellerID или nmID');
-                }
-
-                $groupedBySeller[$sellerId][] = [
+                $pricePayload = $this->buildPricePayloadForMapping($skuMapping);
+                $groupedBySeller[$pricePayload['sellerId']][] = [
                     'mappingId' => $skuMapping->id,
                     'priceData' => [
-                        'nmID' => $nmID,
-                        'price' => $sellPrice,
+                        'nmID' => $pricePayload['nmID'],
+                        'price' => $pricePayload['price'],
                     ],
                 ];
             } catch (\Exception $e) {
@@ -446,6 +437,77 @@ class WbJob implements ShouldQueue
 
         $remainingCount = SkuMapping::where('needUpdatePrice', 1)->count();
         $processedCount = max(0, $skuMappings->count() - $remainingCount);
+        $this->notifyPriceUpdateFinished(
+            $startedAt,
+            $currentAttempt,
+            $maxAttempts,
+            $processedBatches,
+            $processedCount,
+            $remainingCount,
+            $batchSize,
+            $maxBatchesPerRun
+        );
+
+        self::dispatch(self::ACTION_UPDATE_PRICE, [])->onQueue(self::QUEUE_UPDATE_PRICE)->delay(now()->addHour());
+    }
+
+    private function buildPricePayloadForMapping(SkuMapping $skuMapping): array
+    {
+        $sellPrice = $this->calculateSellPrice($skuMapping);
+
+        $card = $skuMapping->card;
+        if (!$card) {
+            throw new RuntimeException('Не удалось получить карточку для skuMapping');
+        }
+
+        $sellerId = $card->sellerID;
+        $nmID = $card->nmID;
+        if (!$sellerId || !$nmID) {
+            throw new RuntimeException('Не удалось получить sellerID или nmID');
+        }
+
+        return [
+            'sellerId' => $sellerId,
+            'nmID' => $nmID,
+            'price' => $sellPrice,
+        ];
+    }
+
+    private function calculateSellPrice(SkuMapping $skuMapping): int
+    {
+        $calculatedPrice = $skuMapping->total_cost - ($skuMapping->total_cost * self::PRICE_MARGIN);
+        if ($calculatedPrice < $skuMapping->wbPrice) {
+            return (int)ceil($skuMapping->wbPrice + ($skuMapping->wbPrice * self::PRICE_MARGIN));
+        }
+
+        return (int)ceil($skuMapping->total_cost);
+    }
+
+    private function notifyPriceUpdateStarted($startedAt, int $currentAttempt, int $maxAttempts): void
+    {
+        SystemNotification::create([
+            'title' => 'Запущено обновление цен',
+            'message' => "Джоба обновления цен стартовала (попытка {$currentAttempt}/{$maxAttempts}).",
+            'level' => 'info',
+            'source' => 'wb_update_price_job',
+            'meta' => [
+                'started_at' => $startedAt->toDateTimeString(),
+                'attempt' => $currentAttempt,
+                'max_attempts' => $maxAttempts,
+            ],
+        ]);
+    }
+
+    private function notifyPriceUpdateFinished(
+        $startedAt,
+        int $currentAttempt,
+        int $maxAttempts,
+        int $processedBatches,
+        int $processedCount,
+        int $remainingCount,
+        int $batchSize,
+        int $maxBatchesPerRun
+    ): void {
         SystemNotification::create([
             'title' => 'Обновление цен завершено',
             'message' => "Попытка {$currentAttempt}/{$maxAttempts}. Обработано: {$processedCount}, осталось: {$remainingCount}, пачек за запуск: {$processedBatches}.",
@@ -463,7 +525,5 @@ class WbJob implements ShouldQueue
                 'max_batches_per_run' => $maxBatchesPerRun,
             ],
         ]);
-
-        self::dispatch('updatePrice', [])->onQueue('updatePrice')->delay(now()->addHour());
     }
 }
