@@ -87,7 +87,6 @@ class WildberriesService
         ])
             ->timeout(60)
             ->post($this->baseUrl . 'cards/upload', $payload);
-
         $result = $this->handleResponse($response, $payload);
         $result['items'] = $itemsMeta;
         $result['skipped_items'] = $skippedItems;
@@ -152,18 +151,20 @@ class WildberriesService
                 'length' => 10,
                 'width' => 10,
                 'height' => 10,
-                'weightBrutto' => 0.5
+                'weightBrutto' => 0.5,
             ];
         }
         $response = SimService::fetchProductData($sku);
         SimService::validateResponse($response);
         $item = $response['items'][0];
         $result = SimService::getProductDimensions($item, $item['product_volume'] ?? 0, (string)$sku);
+        $weightBrutto = max(0.001, (float)($result['weight_kg'] ?? 0.5));
+
         return [
             'length' => floor($result['length']) > 0 ? floor($result['length']) : 1,
             'width' => floor($result['width']) > 0 ? floor($result['width']) : 1,
             'height' => floor($result['depth']) > 0 ? floor($result['depth']) : 1,
-            'weightBrutto' => $result['weight_kg']
+            'weightBrutto' => round($weightBrutto, 3),
         ];
     }
 
@@ -181,11 +182,25 @@ class WildberriesService
     private function extractCharacteristics(array $source): array
     {
         $result = [];
+        $blockedCharacteristicIds = [88952, 90849, 90846, 90745];
+        $blockedNames = [
+            'вес с упаковкой',
+            'длина упаковки',
+            'ширина упаковки',
+            'высота упаковки',
+        ];
         $chars = $this->getCharacteristics((int)$source['data']['subject_id']);
         if (!empty($source['options'])) {
             foreach ($source['options'] as $characteristic) {
                 foreach ($chars['data']['data'] as $char) {
                     if ($char['name'] === $characteristic['name']) {
+                        $charName = mb_strtolower((string)($char['name'] ?? ''));
+                        if (
+                            in_array((int)$char['charcID'], $blockedCharacteristicIds, true) ||
+                            in_array($charName, $blockedNames, true)
+                        ) {
+                            continue;
+                        }
                         if ($char['charcType'] === 4) {
                             $result[] = ['id' => $char['charcID'], 'value' => (int)$characteristic['value']];
                         } else {
