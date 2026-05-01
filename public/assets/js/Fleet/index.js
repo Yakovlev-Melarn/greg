@@ -20,10 +20,40 @@ const $vehicleExpensesModal = $('#vehicleExpensesModal');
 const $vehicleExpenseForm = $('#vehicleExpenseForm');
 const $vehicleExpensesTableBody = $('#vehicleExpensesTableBody');
 const $vehicleExpensesEmptyState = $('#vehicleExpensesEmptyState');
+const $expenseCategoryId = $('#expenseCategoryId');
+
+const $expenseCategoriesModal = $('#expenseCategoriesModal');
+const $expenseCategoryForm = $('#expenseCategoryForm');
+const $expenseCategoriesAdminList = $('#expenseCategoriesAdminList');
+const $expenseCategoryDeleteModal = $('#expenseCategoryDeleteModal');
+
+const $expenseStatsDateFrom = $('#expenseStatsDateFrom');
+const $expenseStatsDateTo = $('#expenseStatsDateTo');
+const $loadExpenseStatsBtn = $('#loadExpenseStatsBtn');
+const $expenseStatsVehicleId = $('#expenseStatsVehicleId');
+
+let pendingDeleteExpenseCategoryId = null;
+
+let expenseStatsPieChart = null;
+let expenseStatsLineChart = null;
+
+const EXPENSE_STATS_CHART_COLORS = [
+    '#4B49AC',
+    '#FF4747',
+    '#57B657',
+    '#248AFD',
+    '#FFC100',
+    '#FF8C00',
+    '#6C757D',
+    '#17A2B8',
+    '#6610F2',
+    '#E83E8C'
+];
 
 let fleetState = {
     vehicles: [],
     companies: [],
+    expenseCategories: [],
     expensesByVehicle: {},
     filters: {
         plate: '',
@@ -214,11 +244,220 @@ function renderExpenses(vehicleId) {
     });
 }
 
+function renderExpenseCategorySelect(selectedId) {
+    const val = selectedId != null && selectedId !== '' ? String(selectedId) : '';
+    $expenseCategoryId.empty().append('<option value="">Выберите статью</option>');
+
+    fleetState.expenseCategories.forEach(function (cat) {
+        $expenseCategoryId.append(`
+            <option value="${cat.id}">${escapeHtml(cat.name)}</option>
+        `);
+    });
+
+    if (val) {
+        $expenseCategoryId.val(val);
+    }
+}
+
+function renderExpenseCategoriesAdmin() {
+    $expenseCategoriesAdminList.empty();
+
+    if (!fleetState.expenseCategories.length) {
+        $expenseCategoriesAdminList.html('<div class="text-muted text-center py-2">Статей расходов пока нет</div>');
+        return;
+    }
+
+    fleetState.expenseCategories.forEach(function (cat) {
+        const usage = Number(cat.expenses_count || 0);
+        const usageLabel = usage > 0 ? ` · в расходах: ${usage}` : '';
+        $expenseCategoriesAdminList.append(`
+            <div class="d-flex justify-content-between align-items-center border rounded px-2 py-2 mb-2">
+                <span>${escapeHtml(cat.name)}<span class="text-muted small">${usageLabel}</span></span>
+                <div>
+                    <button class="btn btn-sm btn-light js-edit-expense-category" data-id="${cat.id}">Изменить</button>
+                    <button class="btn btn-sm btn-outline-danger js-delete-expense-category" data-id="${cat.id}">Удалить</button>
+                </div>
+            </div>
+        `);
+    });
+}
+
+function resetExpenseCategoryForm() {
+    $expenseCategoryForm[0].reset();
+    $('#expenseCategoryEditId').val('');
+}
+
+function formatDateForInput(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function initDefaultExpenseStatsRange() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    $expenseStatsDateFrom.val(formatDateForInput(start));
+    $expenseStatsDateTo.val(formatDateForInput(now));
+}
+
+function renderExpenseStatsVehicleOptions(vehiclesSummary) {
+    const currentValue = $expenseStatsVehicleId.val();
+    $expenseStatsVehicleId.empty().append('<option value="">Все машины</option>');
+
+    (vehiclesSummary || []).forEach(function (vehicle) {
+        $expenseStatsVehicleId.append(`
+            <option value="${vehicle.vehicle_id}">
+                ${escapeHtml(vehicle.vehicle_label)} (${Number(vehicle.total_amount || 0).toFixed(2)})
+            </option>
+        `);
+    });
+
+    if (currentValue && $expenseStatsVehicleId.find(`option[value="${currentValue}"]`).length) {
+        $expenseStatsVehicleId.val(currentValue);
+    }
+}
+
+function createExpensePieChart(categories) {
+    const pieCanvas = document.getElementById('expenseStatsPieChart');
+    if (!pieCanvas) return null;
+    const pieCtx = pieCanvas.getContext('2d');
+
+    if (!categories.length) {
+        return new Chart(pieCtx, {
+            type: 'pie',
+            data: {
+                labels: ['Нет расходов в периоде'],
+                datasets: [{
+                    data: [1],
+                    backgroundColor: ['#e9ecef']
+                }]
+            },
+            options: {
+                legend: { display: false },
+                tooltips: { enabled: false }
+            }
+        });
+    }
+
+    return new Chart(pieCtx, {
+        type: 'pie',
+        data: {
+            labels: categories.map(function (row) { return row.category_name; }),
+            datasets: [{
+                data: categories.map(function (row) { return Number(row.total_amount); }),
+                backgroundColor: categories.map(function (_, i) {
+                    return EXPENSE_STATS_CHART_COLORS[i % EXPENSE_STATS_CHART_COLORS.length];
+                })
+            }]
+        },
+        options: {
+            legend: { position: 'bottom' },
+            tooltips: {
+                callbacks: {
+                    label: function (tooltipItem, chartData) {
+                        const label = chartData.labels[tooltipItem.index] || '';
+                        const value = chartData.datasets[0].data[tooltipItem.index];
+                        return `${label}: ${Number(value).toFixed(2)}`;
+                    }
+                }
+            }
+        }
+    });
+}
+
+function createExpenseLineChart(lineRows) {
+    const lineCanvas = document.getElementById('expenseStatsLineChart');
+    if (!lineCanvas) return null;
+    const lineCtx = lineCanvas.getContext('2d');
+
+    const lineLabels = lineRows.map(function (row) { return row.date; });
+    const lineValues = lineRows.map(function (row) { return Number(row.total_amount); });
+
+    return new Chart(lineCtx, {
+        type: 'line',
+        data: {
+            labels: lineLabels,
+            datasets: [{
+                label: 'Сумма',
+                data: lineValues,
+                borderColor: '#4B49AC',
+                backgroundColor: 'rgba(75, 73, 172, 0.08)',
+                fill: true,
+                lineTension: 0.2,
+                pointRadius: 2
+            }]
+        },
+        options: {
+            legend: { display: false },
+            scales: {
+                yAxes: [{
+                    ticks: {
+                        beginAtZero: true
+                    }
+                }]
+            },
+            tooltips: {
+                callbacks: {
+                    label: function (tooltipItem) {
+                        return `Сумма: ${Number(tooltipItem.yLabel).toFixed(2)}`;
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderExpenseStatsCharts(data) {
+    if (typeof Chart === 'undefined') {
+        showAlert('Chart.js не загружен', 'error');
+        return;
+    }
+
+    if (expenseStatsPieChart) {
+        expenseStatsPieChart.destroy();
+        expenseStatsPieChart = null;
+    }
+    if (expenseStatsLineChart) {
+        expenseStatsLineChart.destroy();
+        expenseStatsLineChart = null;
+    }
+
+    expenseStatsPieChart = createExpensePieChart(data.by_category || []);
+    expenseStatsLineChart = createExpenseLineChart(data.line || []);
+}
+
+function loadExpenseStats() {
+    return $.post('/api/fleet/expenseStats', {
+        date_from: $expenseStatsDateFrom.val(),
+        date_to: $expenseStatsDateTo.val(),
+        vehicle_id: $expenseStatsVehicleId.val() || null
+    }).done(function (data) {
+        $('#expenseStatsTotal').text(Number(data.total_amount || 0).toFixed(2));
+        renderExpenseStatsVehicleOptions(data.vehicles || []);
+        renderExpenseStatsCharts(data);
+    }).fail(function (xhr) {
+        showAlert(handleAjaxError(xhr), 'error');
+    });
+}
+
 function loadFleet() {
     return $.post('/api/fleet/list')
         .done(function (data) {
             fleetState.vehicles = data;
             renderFleet();
+        });
+}
+
+function loadExpenseCategories() {
+    return $.post('/api/fleet/expenseCategoriesList')
+        .done(function (data) {
+            fleetState.expenseCategories = data;
+            renderExpenseCategoriesAdmin();
+            const preserved = $('#expenseCategoryId').val();
+            if ($vehicleExpensesModal.hasClass('show')) {
+                renderExpenseCategorySelect(preserved);
+            }
         });
 }
 
@@ -256,6 +495,7 @@ function resetExpenseForm(vehicleId) {
     $vehicleExpenseForm[0].reset();
     $('#expenseId').val('');
     $('#expenseVehicleId').val(vehicleId);
+    renderExpenseCategorySelect('');
 }
 
 $('#addVehicleBtn').on('click', function () {
@@ -382,6 +622,115 @@ $(document).on('click', '.js-expenses-vehicle', function () {
     $vehicleExpensesModal.modal('show');
 });
 
+$('#manageExpenseCategoriesBtn').on('click', function () {
+    resetExpenseCategoryForm();
+    $expenseCategoriesModal.modal('show');
+});
+
+$expenseCategoryForm.on('submit', function (e) {
+    e.preventDefault();
+    const id = $('#expenseCategoryEditId').val();
+    const endpoint = id ? '/api/fleet/expenseCategoryUpdate' : '/api/fleet/expenseCategoryStore';
+
+    $.post(endpoint, {
+        id: id || undefined,
+        name: $('#expenseCategoryName').val().trim()
+    }).done(function () {
+        resetExpenseCategoryForm();
+        const preservedSelect = $('#expenseCategoryId').val();
+        loadExpenseCategories().done(function () {
+            renderExpenseCategorySelect(preservedSelect);
+            const vehicleId = Number($('#expenseVehicleId').val());
+            if (vehicleId) {
+                loadVehicleExpenses(vehicleId);
+            }
+            loadFleet();
+            loadExpenseStats();
+        });
+        showAlert('Статья расходов сохранена');
+    }).fail(function (xhr) {
+        showAlert(handleAjaxError(xhr), 'error');
+    });
+});
+
+$(document).on('click', '.js-edit-expense-category', function () {
+    const categoryId = Number($(this).data('id'));
+    const category = fleetState.expenseCategories.find(function (item) { return item.id === categoryId; });
+    if (!category) return;
+    $('#expenseCategoryEditId').val(category.id);
+    $('#expenseCategoryName').val(category.name);
+});
+
+$(document).on('click', '.js-delete-expense-category', function () {
+    const categoryId = Number($(this).data('id'));
+    const category = fleetState.expenseCategories.find(function (item) { return item.id === categoryId; });
+    if (!category) return;
+
+    const usage = Number(category.expenses_count || 0);
+    if (usage > 0) {
+        const others = fleetState.expenseCategories.filter(function (item) { return item.id !== categoryId; });
+        if (!others.length) {
+            showAlert('Создайте другую статью расходов, чтобы перенести записи перед удалением', 'error');
+            return;
+        }
+
+        pendingDeleteExpenseCategoryId = categoryId;
+        $('#expenseCategoryDeleteHint').text(`Статья «${category.name}» используется в расходах (${usage}). Выберите статью для переноса.`);
+
+        const $rep = $('#expenseCategoryDeleteReplacement').empty();
+        others.forEach(function (item) {
+            $rep.append(`<option value="${item.id}">${escapeHtml(item.name)}</option>`);
+        });
+
+        $expenseCategoryDeleteModal.modal('show');
+        return;
+    }
+
+    if (!confirm('Удалить статью расходов?')) return;
+
+    $.post('/api/fleet/expenseCategoryDestroy', { id: categoryId })
+        .done(function () {
+            loadExpenseCategories().done(function () {
+                renderExpenseCategorySelect($('#expenseCategoryId').val());
+                const vehicleId = Number($('#expenseVehicleId').val());
+                if (vehicleId) {
+                    loadVehicleExpenses(vehicleId);
+                }
+                loadFleet();
+                loadExpenseStats();
+            });
+            showAlert('Статья расходов удалена');
+        })
+        .fail(function (xhr) {
+            showAlert(handleAjaxError(xhr), 'error');
+        });
+});
+
+$('#expenseCategoryDeleteConfirmBtn').on('click', function () {
+    if (!pendingDeleteExpenseCategoryId) return;
+
+    const replacementId = $('#expenseCategoryDeleteReplacement').val();
+    $.post('/api/fleet/expenseCategoryDestroy', {
+        id: pendingDeleteExpenseCategoryId,
+        replacement_id: replacementId
+    }).done(function () {
+        pendingDeleteExpenseCategoryId = null;
+        $expenseCategoryDeleteModal.modal('hide');
+        loadExpenseCategories().done(function () {
+            renderExpenseCategorySelect($('#expenseCategoryId').val());
+            const vehicleId = Number($('#expenseVehicleId').val());
+            if (vehicleId) {
+                loadVehicleExpenses(vehicleId);
+            }
+            loadFleet();
+            loadExpenseStats();
+        });
+        showAlert('Статья удалена, расходы перенесены');
+    }).fail(function (xhr) {
+        showAlert(handleAjaxError(xhr), 'error');
+    });
+});
+
 $vehicleExpenseForm.on('submit', function (e) {
     e.preventDefault();
 
@@ -393,13 +742,14 @@ $vehicleExpenseForm.on('submit', function (e) {
         id: expenseId || undefined,
         fleet_vehicle_id: vehicleId,
         expense_date: $('#expenseDate').val(),
-        category: $('#expenseCategory').val().trim(),
+        expense_category_id: $('#expenseCategoryId').val(),
         amount: $('#expenseAmount').val(),
         comment: $('#expenseComment').val().trim()
     }).done(function () {
         resetExpenseForm(vehicleId);
         loadVehicleExpenses(vehicleId);
         loadFleet();
+        loadExpenseStats();
         showAlert('Расход сохранен');
     }).fail(function (xhr) {
         showAlert(handleAjaxError(xhr), 'error');
@@ -416,7 +766,7 @@ $(document).on('click', '.js-edit-expense', function () {
     $('#expenseId').val(expense.id);
     $('#expenseVehicleId').val(vehicleId);
     $('#expenseDate').val(expense.expense_date);
-    $('#expenseCategory').val(expense.category);
+    renderExpenseCategorySelect(expense.expense_category_id);
     $('#expenseAmount').val(expense.amount);
     $('#expenseComment').val(expense.comment || '');
 });
@@ -430,6 +780,7 @@ $(document).on('click', '.js-delete-expense', function () {
         .done(function () {
             loadVehicleExpenses(vehicleId);
             loadFleet();
+            loadExpenseStats();
             showAlert('Расход удален');
         })
         .fail(function (xhr) {
@@ -459,9 +810,22 @@ $fleetResetFiltersBtn.on('click', function () {
     resetFleetFilters();
 });
 
+$loadExpenseStatsBtn.on('click', function () {
+    loadExpenseStats();
+});
+
+$expenseStatsVehicleId.on('change', function () {
+    loadExpenseStats();
+});
+
 loadPersistedFilters();
 syncFilterInputsFromState();
 
-$.when(loadTransportCompanies(), loadFleet()).fail(function (xhr) {
-    showAlert(handleAjaxError(xhr), 'error');
-});
+$.when(loadTransportCompanies(), loadFleet(), loadExpenseCategories())
+    .done(function () {
+        initDefaultExpenseStatsRange();
+        loadExpenseStats();
+    })
+    .fail(function (xhr) {
+        showAlert(handleAjaxError(xhr), 'error');
+    });

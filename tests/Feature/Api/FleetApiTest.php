@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\ExpenseCategory;
 use App\Models\FleetVehicle;
 use App\Models\TransportCompany;
 use App\Models\VehicleExpense;
@@ -91,10 +92,22 @@ class FleetApiTest extends TestCase
         $updateVehicle->assertOk()->assertJsonPath('model', 'TGX');
         $updateVehicle->assertJsonPath('rent_per_day', null);
 
+        $gsm = $this->postJson('/api/fleet/expenseCategoryStore', [
+            'name' => 'ГСМ',
+        ]);
+        $gsm->assertCreated();
+        $gsmId = (int) $gsm->json('id');
+
+        $repair = $this->postJson('/api/fleet/expenseCategoryStore', [
+            'name' => 'Ремонт',
+        ]);
+        $repair->assertCreated();
+        $repairId = (int) $repair->json('id');
+
         $createExpense = $this->postJson('/api/fleet/expenseStore', [
             'fleet_vehicle_id' => $vehicleId,
             'expense_date' => '2026-04-30',
-            'category' => 'ГСМ',
+            'expense_category_id' => $gsmId,
             'amount' => 3500.50,
             'comment' => 'Заправка',
         ]);
@@ -108,7 +121,7 @@ class FleetApiTest extends TestCase
             'id' => $expenseId,
             'fleet_vehicle_id' => $vehicleId,
             'expense_date' => '2026-05-01',
-            'category' => 'Ремонт',
+            'expense_category_id' => $repairId,
             'amount' => 1000,
             'comment' => 'Расходники',
         ]);
@@ -119,6 +132,164 @@ class FleetApiTest extends TestCase
 
         $deleteVehicle = $this->postJson('/api/fleet/destroy', ['id' => $vehicleId]);
         $deleteVehicle->assertOk()->assertJsonPath('success', true);
+    }
+
+    #[TestDox('Переименование статьи расходов обновляет денормализованное поле category у расходов')]
+    public function test_expense_category_rename_updates_linked_expenses(): void
+    {
+        $vehicle = FleetVehicle::create([
+            'brand' => 'Sitrak',
+            'model' => 'C7H',
+            'plate_number' => 'F666FF77',
+            'tonnage' => 18,
+            'ownership_type' => 'owned',
+        ]);
+
+        $category = ExpenseCategory::create(['name' => 'Старое имя']);
+        $expense = VehicleExpense::create([
+            'fleet_vehicle_id' => $vehicle->id,
+            'expense_category_id' => $category->id,
+            'expense_date' => '2026-05-03',
+            'category' => $category->name,
+            'amount' => 100,
+        ]);
+
+        $this->postJson('/api/fleet/expenseCategoryUpdate', [
+            'id' => $category->id,
+            'name' => 'Новое имя',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('vehicle_expenses', [
+            'id' => $expense->id,
+            'expense_category_id' => $category->id,
+            'category' => 'Новое имя',
+        ]);
+    }
+
+    #[TestDox('Удаление статьи с расходами требует переноса в другую статью')]
+    public function test_expense_category_delete_reassigns_expenses(): void
+    {
+        $vehicle = FleetVehicle::create([
+            'brand' => 'Sitrak',
+            'model' => 'C7H',
+            'plate_number' => 'G777GG77',
+            'tonnage' => 18,
+            'ownership_type' => 'owned',
+        ]);
+
+        $from = ExpenseCategory::create(['name' => 'Удаляемая']);
+        $to = ExpenseCategory::create(['name' => 'Целевая']);
+
+        $expense = VehicleExpense::create([
+            'fleet_vehicle_id' => $vehicle->id,
+            'expense_category_id' => $from->id,
+            'expense_date' => '2026-05-04',
+            'category' => $from->name,
+            'amount' => 250,
+        ]);
+
+        $this->postJson('/api/fleet/expenseCategoryDestroy', [
+            'id' => $from->id,
+            'replacement_id' => $to->id,
+        ])->assertOk()->assertJsonPath('success', true);
+
+        $this->assertDatabaseMissing('expense_categories', ['id' => $from->id]);
+        $this->assertDatabaseHas('vehicle_expenses', [
+            'id' => $expense->id,
+            'expense_category_id' => $to->id,
+            'category' => 'Целевая',
+        ]);
+    }
+
+    #[TestDox('Статистика расходов за период агрегирует суммы по статьям и по дням')]
+    public function test_expense_stats_for_custom_period(): void
+    {
+        $vehicle = FleetVehicle::create([
+            'brand' => 'Sitrak',
+            'model' => 'C7H',
+            'plate_number' => 'H888HH77',
+            'tonnage' => 18,
+            'ownership_type' => 'owned',
+        ]);
+        $vehicleWithoutExpenses = FleetVehicle::create([
+            'brand' => 'MAN',
+            'model' => 'TGX',
+            'plate_number' => 'K999KK77',
+            'tonnage' => 20,
+            'ownership_type' => 'owned',
+        ]);
+
+        $catGsm = ExpenseCategory::create(['name' => 'ГСМ']);
+        $catRepair = ExpenseCategory::create(['name' => 'Ремонт']);
+
+        VehicleExpense::create([
+            'fleet_vehicle_id' => $vehicle->id,
+            'expense_category_id' => $catGsm->id,
+            'expense_date' => '2026-05-01',
+            'category' => $catGsm->name,
+            'amount' => 100,
+        ]);
+        VehicleExpense::create([
+            'fleet_vehicle_id' => $vehicle->id,
+            'expense_category_id' => $catRepair->id,
+            'expense_date' => '2026-05-01',
+            'category' => $catRepair->name,
+            'amount' => 200,
+        ]);
+        VehicleExpense::create([
+            'fleet_vehicle_id' => $vehicle->id,
+            'expense_category_id' => $catGsm->id,
+            'expense_date' => '2026-05-02',
+            'category' => $catGsm->name,
+            'amount' => 50,
+        ]);
+
+        $response = $this->postJson('/api/fleet/expenseStats', [
+            'date_from' => '2026-05-01',
+            'date_to' => '2026-05-02',
+        ]);
+
+        $response->assertOk();
+        $this->assertEquals(350.0, (float) $response->json('total_amount'));
+
+        $byCategory = $response->json('by_category');
+        $this->assertSame('Ремонт', $byCategory[0]['category_name']);
+        $this->assertEquals(200.0, (float) $byCategory[0]['total_amount']);
+        $this->assertSame('ГСМ', $byCategory[1]['category_name']);
+        $this->assertEquals(150.0, (float) $byCategory[1]['total_amount']);
+
+        $line = $response->json('line');
+        $this->assertCount(2, $line);
+        $this->assertSame('2026-05-01', $line[0]['date']);
+        $this->assertEquals(300.0, (float) $line[0]['total_amount']);
+        $this->assertSame('2026-05-02', $line[1]['date']);
+        $this->assertEquals(50.0, (float) $line[1]['total_amount']);
+
+        $vehicles = $response->json('vehicles');
+        $this->assertCount(1, $vehicles);
+        $mainVehicle = collect($vehicles)->firstWhere('vehicle_id', $vehicle->id);
+        $this->assertNotNull($mainVehicle);
+        $this->assertEquals(350.0, (float) $mainVehicle['total_amount']);
+
+        $filtered = $this->postJson('/api/fleet/expenseStats', [
+            'date_from' => '2026-05-01',
+            'date_to' => '2026-05-02',
+            'vehicle_id' => $vehicleWithoutExpenses->id,
+        ]);
+        $filtered->assertOk();
+        $this->assertEquals(0.0, (float) $filtered->json('total_amount'));
+        $this->assertSame($vehicleWithoutExpenses->id, (int) $filtered->json('vehicle_id'));
+    }
+
+    #[TestDox('Статистика расходов отклоняет период если дата начала позже даты окончания')]
+    public function test_expense_stats_rejects_inverted_date_range(): void
+    {
+        $response = $this->postJson('/api/fleet/expenseStats', [
+            'date_from' => '2026-05-10',
+            'date_to' => '2026-05-05',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['date_from']);
     }
 
     #[TestDox('Валидация машины проверяет уникальность госномера и аренду для rented')]
@@ -162,10 +333,12 @@ class FleetApiTest extends TestCase
             'ownership_type' => 'owned',
         ]);
 
+        $category = ExpenseCategory::create(['name' => 'Прочее']);
         $expense = VehicleExpense::create([
             'fleet_vehicle_id' => $vehicle->id,
+            'expense_category_id' => $category->id,
             'expense_date' => '2026-05-02',
-            'category' => 'Прочее',
+            'category' => $category->name,
             'amount' => 500,
         ]);
 

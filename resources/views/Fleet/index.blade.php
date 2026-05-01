@@ -68,6 +68,43 @@
                         Машин пока нет. Добавьте первую машину.
                     </div>
                 </div>
+
+                <div class="glass-panel cards-content mt-3">
+                    <h5 class="mb-3">Статистика расходов</h5>
+                    <div class="d-flex flex-wrap align-items-end mb-3">
+                        <div class="mr-2 mb-2">
+                            <label for="expenseStatsVehicleId" class="mb-1">Машина</label>
+                            <select class="form-control" id="expenseStatsVehicleId">
+                                <option value="">Все машины</option>
+                            </select>
+                        </div>
+                        <div class="mr-2 mb-2">
+                            <label for="expenseStatsDateFrom" class="mb-1">Период с</label>
+                            <input type="date" class="form-control" id="expenseStatsDateFrom">
+                        </div>
+                        <div class="mr-2 mb-2">
+                            <label for="expenseStatsDateTo" class="mb-1">по</label>
+                            <input type="date" class="form-control" id="expenseStatsDateTo">
+                        </div>
+                        <div class="mb-2">
+                            <button type="button" class="btn btn-primary" id="loadExpenseStatsBtn">Показать</button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Сумма за период:</strong>
+                        <span id="expenseStatsTotal">0.00</span>
+                    </div>
+                    <div class="row">
+                        <div class="col-lg-6 mb-3">
+                            <h6 class="mb-2">По статьям расходов</h6>
+                            <canvas id="expenseStatsPieChart" height="220"></canvas>
+                        </div>
+                        <div class="col-lg-6 mb-3">
+                            <h6 class="mb-2">По дням</h6>
+                            <canvas id="expenseStatsLineChart" height="220"></canvas>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -157,9 +194,14 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="vehicleExpensesTitle">Расходы по машине</h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <div class="d-flex align-items-center ml-auto">
+                        <button type="button" class="btn btn-sm btn-outline-secondary mr-2" id="manageExpenseCategoriesBtn">
+                            Статьи расходов
+                        </button>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="modal-body">
                     <form id="vehicleExpenseForm" class="mb-3">
@@ -170,7 +212,9 @@
                                 <input type="date" class="form-control" id="expenseDate" name="expense_date" required>
                             </div>
                             <div class="col-md-3 mb-2">
-                                <input type="text" class="form-control" id="expenseCategory" name="category" placeholder="Категория" required>
+                                <select class="form-control" id="expenseCategoryId" name="expense_category_id" required>
+                                    <option value="">Выберите статью</option>
+                                </select>
                             </div>
                             <div class="col-md-3 mb-2">
                                 <input type="number" min="0.01" step="0.01" class="form-control" id="expenseAmount" name="amount" placeholder="Сумма" required>
@@ -196,6 +240,53 @@
                         </table>
                     </div>
                     <div class="text-center text-muted py-3 d-none" id="vehicleExpensesEmptyState">Расходов пока нет</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="expenseCategoriesModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Статьи расходов</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="expenseCategoryForm" class="mb-3">
+                        <input type="hidden" id="expenseCategoryEditId" name="id">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="expenseCategoryName" name="name" placeholder="Название статьи" required>
+                            <div class="input-group-append">
+                                <button type="submit" class="btn btn-primary">Сохранить</button>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="expenseCategoriesAdminList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="expenseCategoryDeleteModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Удаление статьи расходов</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2" id="expenseCategoryDeleteHint"></p>
+                    <label for="expenseCategoryDeleteReplacement">Перенести расходы в</label>
+                    <select class="form-control" id="expenseCategoryDeleteReplacement"></select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-danger" id="expenseCategoryDeleteConfirmBtn">Удалить и перенести</button>
                 </div>
             </div>
         </div>

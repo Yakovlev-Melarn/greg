@@ -174,7 +174,7 @@
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="/drivers">
                     <span class="link-title">Водители</span>
                     <i class="mdi mdi-account-group-outline link-icon"></i>
                 </a>

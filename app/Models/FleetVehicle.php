@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class FleetVehicle extends Model
 {
@@ -26,5 +27,10 @@ class FleetVehicle extends Model
     public function expenses(): HasMany
     {
         return $this->hasMany(VehicleExpense::class);
+    }
+
+    public function driver(): HasOne
+    {
+        return $this->hasOne(Driver::class, 'fleet_vehicle_id');
     }
 }
