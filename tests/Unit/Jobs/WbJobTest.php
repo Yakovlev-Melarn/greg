@@ -7,13 +7,16 @@ use App\DTO\Wb\PhotoUploadPayload;
 use App\DTO\Wb\PriceUpdatePayload;
 use App\Jobs\WbJob;
 use App\Models\SkuMapping;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\TestDox;
-use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use RuntimeException;
+use Tests\TestCase;
 
 class WbJobTest extends TestCase
 {
+    use RefreshDatabase;
+
     #[TestDox('Контекст getCardList собирается из новых полей')]
     public function test_case_01(): void
     {
@@ -98,6 +101,24 @@ class WbJobTest extends TestCase
             ['WB-X-998877-1', null, null]
         );
         $this->assertSame(998877, $wbUsesVendorCodeSku);
+    }
+
+    #[TestDox('Sima-Land подставляет queueWbSku из SkuMapping при пустом queueWbSku')]
+    public function test_case_04b_mapping_queue_when_empty(): void
+    {
+        SkuMapping::forceCreate([
+            'origSku' => '7778888',
+            'wbSku' => '12624007',
+        ]);
+
+        $job = new WbJob('getCardList', []);
+
+        $fromMapping = $this->invokePrivate(
+            $job,
+            'resolvePhotoSourceSupplierId',
+            ['SM-L-7778888-1', '111', null]
+        );
+        $this->assertSame(12624007, $fromMapping);
     }
 
     #[TestDox('DTO цены формируется корректно по skuMapping')]

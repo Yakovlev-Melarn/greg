@@ -319,17 +319,29 @@ class WbJob implements ShouldQueue
         int|string|null $queueWbSku = null
     ): int
     {
-        $supplierCode = strtoupper((string)($supplierVendorCode[0] ?? ''));
+        $supplierCode = strtoupper($supplierVendorCode[0] ?? '');
 
-        // Для Sima-Land в clone-потоке приоритет у queueWbSku, затем sourceSku.
+        // Для Sima-Land в clone-потоке приоритет у queueWbSku, затем wbSku из SkuMapping, затем sourceSku.
         if ($supplierCode === 'S') {
-            if (!empty($queueWbSku)) {
-                return (int)$queueWbSku;
+            $resolvedQueueWbSku = $queueWbSku;
+            if (empty($resolvedQueueWbSku)) {
+                $origSku = (int) Helper::getVendorCode($supplierVendorCode);
+                if ($origSku > 0) {
+                    $wbSkuFromMapping = SkuMapping::query()
+                        ->where('origSku', (string) $origSku)
+                        ->value('wbSku');
+                    if (! empty($wbSkuFromMapping)) {
+                        $resolvedQueueWbSku = $wbSkuFromMapping;
+                    }
+                }
             }
-            if (!empty($sourceSku)) {
-                return (int)$sourceSku;
+            if (! empty($resolvedQueueWbSku)) {
+                return (int) $resolvedQueueWbSku;
             }
-            return (int)Helper::getVendorCode($supplierVendorCode);
+            if (! empty($sourceSku)) {
+                return (int) $sourceSku;
+            }
+            return (int) Helper::getVendorCode($supplierVendorCode);
         }
 
         // Для WB пытаемся взять SKU из vendorCode.
