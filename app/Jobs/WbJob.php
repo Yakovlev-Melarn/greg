@@ -7,6 +7,7 @@ use App\DTO\Wb\PhotoUploadPayload;
 use App\DTO\Wb\PriceUpdatePayload;
 use App\Libs\Helper;
 use App\Libs\WBContent;
+use App\Models\Cards as CardsModel;
 use App\Models\Sellers;
 use App\Models\SkuMapping;
 use App\Models\SystemNotification;
@@ -113,11 +114,18 @@ class WbJob implements ShouldQueue
         $updatedAt = $cursorData['updatedAt'] ?? null;
         $total = (int)($cursorData['total'] ?? 0);
 
+        if (! empty($params['cards_sync_notify_start'])) {
+            $this->notifyCardsSyncStarted($params, $seller);
+        }
+
         // Обновляем/сохраняем карточки только после того, как фото уже появилось в WB.
         $this->updateCard($cards, $seller, $context->sourceSku, $context->queueWbSku);
-        if ($total == 100) {
+
+        $isCatalogBackfill = ! empty($params['catalog_backfill']);
+
+        if ($total === 100) {
             // Пагинация WB: если получили полный лимит, запрашиваем следующую страницу.
-            self::dispatch(self::ACTION_GET_CARD_LIST, [
+            $nextPayload = [
                 'seller_id' => $context->sellerId,
                 'sourceSku' => $context->sourceSku,
                 'queueWbSku' => $context->queueWbSku,
@@ -127,13 +135,110 @@ class WbJob implements ShouldQueue
                         'cursor' => [
                             'limit' => 100,
                             'updatedAt' => $updatedAt,
-                            'nmID' => $cursor
+                            'nmID' => $cursor,
                         ],
-                        'filter' => ['withPhoto' => -1]
-                    ]
-                ]
-            ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
+                        'filter' => ['withPhoto' => -1],
+                    ],
+                ],
+            ];
+            if ($isCatalogBackfill) {
+                $nextPayload['catalog_backfill'] = true;
+            } elseif (! empty($params['needs_catalog_backfill_after_incremental'])) {
+                $nextPayload['needs_catalog_backfill_after_incremental'] = true;
+            }
+            $this->carryCardsSyncRunId($nextPayload, $params);
+            self::dispatch(self::ACTION_GET_CARD_LIST, $nextPayload)->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
+
+            return;
         }
+
+        // Последняя страница текущего режима (total < 100)
+        if ($isCatalogBackfill) {
+            $this->notifyCardsSyncFinishedIfTracked($params, $seller, count($cards));
+
+            return;
+        }
+
+        if (
+            ! empty($params['needs_catalog_backfill_after_incremental'])
+            && ! $this->isTargetedCardListFetch($params, $context)
+        ) {
+            $backfillPayload = [
+                'seller_id' => $context->sellerId,
+                'catalog_backfill' => true,
+                'settings' => [
+                    'settings' => [
+                        'sort' => ['ascending' => true],
+                        'cursor' => ['limit' => 100],
+                        'filter' => ['withPhoto' => -1],
+                    ],
+                ],
+            ];
+            $this->carryCardsSyncRunId($backfillPayload, $params);
+            self::dispatch(self::ACTION_GET_CARD_LIST, $backfillPayload)->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
+
+            return;
+        }
+
+        $this->notifyCardsSyncFinishedIfTracked($params, $seller, count($cards));
+    }
+
+    private function carryCardsSyncRunId(array &$payload, array $params): void
+    {
+        if (! empty($params['cards_sync_run_id'])) {
+            $payload['cards_sync_run_id'] = $params['cards_sync_run_id'];
+        }
+    }
+
+    private function notifyCardsSyncStarted(array $params, Sellers $seller): void
+    {
+        SystemNotification::create([
+            'title' => 'Синхронизация каталога',
+            'message' => 'Начат обход и обновление карточек WB для магазина «'.$seller->name.'».',
+            'level' => 'info',
+            'source' => 'wb_cards_sync',
+            'meta' => [
+                'seller_id' => $seller->id,
+                'run_id' => $params['cards_sync_run_id'] ?? null,
+                'phase' => 'started',
+            ],
+        ]);
+    }
+
+    private function notifyCardsSyncFinishedIfTracked(array $params, Sellers $seller, int $batchCardCount): void
+    {
+        if (empty($params['cards_sync_run_id'])) {
+            return;
+        }
+
+        SystemNotification::create([
+            'title' => 'Синхронизация каталога',
+            'message' => 'Обход и обновление карточек WB для магазина «'.$seller->name.'» завершены.',
+            'level' => 'success',
+            'source' => 'wb_cards_sync',
+            'meta' => [
+                'seller_id' => $seller->id,
+                'run_id' => $params['cards_sync_run_id'],
+                'phase' => 'finished',
+                'last_batch_cards' => $batchCardCount,
+            ],
+        ]);
+    }
+
+    /**
+     * Точечные запросы списка (клон, follow-up по textSearch и т.д.) — без полного бэкфилла каталога.
+     */
+    private function isTargetedCardListFetch(array $params, CardListContext $context): bool
+    {
+        if ($context->sourceSku !== null && $context->sourceSku !== '') {
+            return true;
+        }
+        if ($context->queueWbSku !== null && $context->queueWbSku !== '') {
+            return true;
+        }
+        $filter = $params['settings']['settings']['filter'] ?? [];
+
+        return ! empty($filter['textSearch']);
     }
 
     /**
@@ -240,6 +345,22 @@ class WbJob implements ShouldQueue
                 . "/part{$basket['mid']}/{$payload->supplierId}/images/big/{$i}.webp";
         }
         $service->uploadPhotos($payload->nmId, $data);
+
+        // Только для ручного обновления: сразу сохраняем первую ссылку на фото в cards.photo.
+        if (!empty($params['manual_photo_refresh']) && !empty($data[0])) {
+            $cardId = (int)($params['card_id'] ?? 0);
+            $cardQuery = CardsModel::query()
+                ->where('sellerID', $payload->sellerId)
+                ->where('nmID', $payload->nmId);
+            if ($cardId > 0) {
+                $cardQuery->where('id', $cardId);
+            }
+            $card = $cardQuery->first();
+            if ($card) {
+                $card->photo = (string)$data[0];
+                $card->save();
+            }
+        }
     }
 
     private function updateCard(
@@ -262,22 +383,14 @@ class WbJob implements ShouldQueue
 
             if ($photo === '') {
                 // Фото ещё не готовы: запускаем загрузку и откладываем повторный fetch карточки.
-                $photoSourceSupplierId = $this->resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
-                if ($photoSourceSupplierId > 0) {
-                    self::dispatch(self::ACTION_UPLOAD_PHOTOS, [
-                        'supplierID' => $photoSourceSupplierId,
-                        'nmID' => (int)$card['nmID'],
-                        'seller_id' => $seller->id,
-                    ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
-
-                    // Re-fetch this exact card after media sync and save only when photo appears.
-                    (new CardSyncScheduler())->dispatchFollowUpCardFetch(
-                        sellerId: $seller->id,
-                        sourceSku: $sourceSku,
-                        queueWbSku: $queueWbSku,
-                        supplierVendorCode: $supplierVendorCode
-                    );
-                } else {
+                $queued = self::queuePhotoUploadAndFollowUpFetch(
+                    (int) $seller->id,
+                    (int) $card['nmID'],
+                    $supplierVendorCode,
+                    $sourceSku,
+                    $queueWbSku
+                );
+                if (! $queued) {
                     Log::warning('WbJob updateCard skipped: photo source id is not resolved', [
                         'seller_id' => $seller->id,
                         'supplierVendorCode' => $supplierVendorCode,
@@ -313,7 +426,45 @@ class WbJob implements ShouldQueue
         }
     }
 
-    private function resolvePhotoSourceSupplierId(
+    /**
+     * Поставить в очередь uploadPhotos; при синхронизации без фото — ещё и отложенный getCardList.
+     * Ручное обновление фото: только uploadPhotos (поле photo обновляется внутри джобы).
+     */
+    public static function queuePhotoUploadAndFollowUpFetch(
+        int $sellerId,
+        int $nmId,
+        string $supplierVendorCode,
+        int|string|null $sourceSku = null,
+        int|string|null $queueWbSku = null,
+        bool $manualPhotoRefresh = false,
+        ?int $cardId = null,
+    ): bool {
+        $photoSourceSupplierId = self::resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
+        if ($photoSourceSupplierId <= 0) {
+            return false;
+        }
+
+        self::dispatch(self::ACTION_UPLOAD_PHOTOS, [
+            'supplierID' => $photoSourceSupplierId,
+            'nmID' => $nmId,
+            'seller_id' => $sellerId,
+            'manual_photo_refresh' => $manualPhotoRefresh,
+            'card_id' => $cardId,
+        ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
+
+        if (! $manualPhotoRefresh) {
+            (new CardSyncScheduler())->dispatchFollowUpCardFetch(
+                $sellerId,
+                $sourceSku,
+                $queueWbSku,
+                $supplierVendorCode
+            );
+        }
+
+        return true;
+    }
+
+    private static function resolvePhotoSourceSupplierId(
         string $supplierVendorCode,
         int|string|null $sourceSku = null,
         int|string|null $queueWbSku = null

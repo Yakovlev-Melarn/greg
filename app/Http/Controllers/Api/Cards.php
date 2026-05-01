@@ -11,6 +11,7 @@ use App\Services\WildberriesService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class Cards
 {
@@ -66,7 +67,7 @@ class Cards
                 'sm.origSku as unit_orig_sku',
                 $userBlockedSelect,
             ])
-            ->where('sellerId', $request['seller']);
+            ->where('sellerID', $request['seller']);
 
         if ($supplier !== '') {
             $query->where('supplier', (int)$supplier);
@@ -111,26 +112,43 @@ class Cards
                 'message' => 'Процесс уже запущен',
             ];
         }
-        if (ModelsCards::count() > 0) {
-            $cardData = ModelsCards::orderBy('id', 'desc')->first();
+        $sellerId = (int) ($request['seller'] ?? 0);
+        $hasLocalCardsForSeller = $sellerId > 0
+            && ModelsCards::where('sellerID', $sellerId)->exists();
+
+        if ($hasLocalCardsForSeller) {
+            $cardData = ModelsCards::where('sellerID', $sellerId)
+                ->orderByDesc('id')
+                ->first();
             $cursor = [
                 'limit' => 100,
                 'nmID' => $cardData->nmID,
-                'updatedAt' => $cardData->updated_at
+                'updatedAt' => $cardData->updated_at,
             ];
         } else {
             $cursor = ['limit' => 100];
         }
-        WbJob::dispatch('getCardList', [
-            'seller_id' => $request['seller'],
+
+        $jobPayload = [
+            'seller_id' => $sellerId,
             'settings' => [
                 'settings' => [
                     'sort' => ['ascending' => true],
                     'cursor' => $cursor,
-                    'filter' => ['withPhoto' => -1]
-                ]
-            ]
-        ])->onQueue('updateCardsProcess');
+                    'filter' => ['withPhoto' => -1],
+                ],
+            ],
+        ];
+        if ($hasLocalCardsForSeller) {
+            // После инкрементальной синхронизации запустим полный проход каталога WB с начала,
+            // иначе карточки «ниже» курсора в сортировке никогда не попадут в БД.
+            $jobPayload['needs_catalog_backfill_after_incremental'] = true;
+        }
+
+        $jobPayload['cards_sync_run_id'] = (string) Str::uuid();
+        $jobPayload['cards_sync_notify_start'] = true;
+
+        WbJob::dispatch('getCardList', $jobPayload)->onQueue('updateCardsProcess');
         return [
             'status' => 'success',
             'message' => 'Процесс запущен',
@@ -176,6 +194,51 @@ class Cards
             return ['status' => 'success', 'message' => 'Карточка перенесена в корзину WB и помечена как заблокированная'];
         } catch (\Throwable $e) {
             return ['status' => 'error', 'message' => 'Ошибка удаления: '.$e->getMessage()];
+        }
+    }
+
+    public function uploadPhotos($request): array
+    {
+        try {
+            $card = ModelsCards::find((int) ($request['card_id'] ?? 0));
+            if (! $card) {
+                return ['status' => 'error', 'message' => 'Карточка не найдена'];
+            }
+
+            if (! in_array((int) $card->supplier, [10, 20], true)) {
+                return ['status' => 'error', 'message' => 'Обновление фото доступно только для Wildberries и Sima-Land'];
+            }
+
+            $seller = Sellers::find((int) $card->sellerID);
+            if (! $seller) {
+                return ['status' => 'error', 'message' => 'Продавец карточки не найден'];
+            }
+
+            $supplierVendorCode = trim((string) $card->supplierVendorCode);
+            if ($supplierVendorCode === '') {
+                return ['status' => 'error', 'message' => 'У карточки не задан артикул поставщика'];
+            }
+
+            $queued = WbJob::queuePhotoUploadAndFollowUpFetch(
+                (int) $seller->id,
+                (int) $card->nmID,
+                $supplierVendorCode,
+                $card->vendorCode,
+                $card->sku,
+                true,
+                (int) $card->id
+            );
+
+            if (! $queued) {
+                return ['status' => 'error', 'message' => 'Не удалось определить источник фото для загрузки'];
+            }
+
+            return [
+                'status' => 'success',
+                'message' => 'Обновление фото поставлено в очередь',
+            ];
+        } catch (\Throwable $e) {
+            return ['status' => 'error', 'message' => 'Ошибка: '.$e->getMessage()];
         }
     }
 

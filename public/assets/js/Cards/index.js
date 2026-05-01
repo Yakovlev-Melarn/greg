@@ -176,13 +176,13 @@ function createRowActionDropdown(card) {
                 <i class="mdi mdi-dots-vertical"></i>
             </button>
             <div class="dropdown-menu dropdown-menu-right cards-action-menu">
-                <button
-                    type="button"
-                    class="dropdown-item js-card-toggle-block"
-                    data-card-id="${card.id}"
-                    data-action="${actionMethod}"
-                >
-                    <i class="mdi ${actionIcon} mr-1"></i>${actionLabel}
+                <button type="button" class="dropdown-item d-flex align-items-center js-card-queue-photo-upload" data-card-id="${card.id}">
+                    <i class="mdi mdi-cloud-upload" aria-hidden="true"></i>
+                    <span>Обновить фото</span>
+                </button>
+                <button type="button" class="dropdown-item d-flex align-items-center js-card-toggle-block" data-card-id="${card.id}" data-action="${actionMethod}">
+                    <i class="mdi ${actionIcon}" aria-hidden="true"></i>
+                    <span>${actionLabel}</span>
                 </button>
             </div>
         </div>
@@ -401,6 +401,49 @@ $(document).on('click', '.photo-preview', function() {
 $(document).on('click', '.js-open-unit-economy', function () {
     const cardId = $(this).data('card-id');
     openUnitEconomyModal(cardId);
+});
+$(document).on('click', '.js-card-queue-photo-upload', function () {
+    const $button = $(this);
+    if ($button.prop('disabled')) {
+        return;
+    }
+
+    const cardId = Number($button.data('card-id'));
+    if (!cardId) {
+        return;
+    }
+
+    const originalHtml = $button.html();
+    $button
+        .prop('disabled', true)
+        .addClass('is-loading')
+        .html(`
+            <span class="cards-inline-spinner" aria-hidden="true"></span>
+            <span>Выполняется...</span>
+        `);
+
+    $.post({
+        url: '/api/cards/uploadPhotos',
+        data: {
+            card_id: cardId
+        }
+    }).done(function (data) {
+        showAlert(data);
+        if (data.status === 'success') {
+            showToast(data.message || 'Готово', 'success');
+            return;
+        }
+        showToast(data.message || 'Операция не выполнена', 'error');
+    }).fail(function (xhr) {
+        const message = xhr?.responseJSON?.message || `Ошибка запроса (HTTP ${xhr?.status || 'unknown'})`;
+        showAlert({ status: 'error', message });
+        showToast(message, 'error');
+    }).always(function () {
+        $button
+            .prop('disabled', false)
+            .removeClass('is-loading')
+            .html(originalHtml);
+    });
 });
 $(document).on('click', '.js-card-toggle-block', function () {
     const $button = $(this);
