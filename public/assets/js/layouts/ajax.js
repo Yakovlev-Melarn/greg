@@ -3,7 +3,8 @@ function ajaxGetSellers($sellerTemplate, window = null) {
         url: "api/sellers/list",
         data: {
             'fields': ['name', 'id'],
-        }
+        },
+        global: Boolean(window)
     }).done(function (data) {
         if (window) {
             window.content($("#shops-template").html());
@@ -27,7 +28,8 @@ function ajaxGetSellers($sellerTemplate, window = null) {
 
 function ajaxGetSuppliers($supplierTemplate, window, isForSelect = false) {
     $.post({
-        url: "api/suppliers/list"
+        url: "api/suppliers/list",
+        global: Boolean(window) || !isForSelect
     }).done(function (data) {
         if (isForSelect) {
             let $select = $('#supplier');
@@ -77,7 +79,10 @@ function ajaxRecalculateSkuPrices(formData) {
 }
 
 function ajaxGetLatestSystemNotifications() {
-    $.post('/api/system-notifications/latest', function (response) {
+    $.post({
+        url: '/api/system-notifications/latest',
+        global: false
+    }).done(function (response) {
         const unreadCount = response?.unread_count ?? 0;
         const items = response?.items ?? [];
         $('#notifications-unread-counter').text('Новых уведомлений: ' + unreadCount);
@@ -119,7 +124,10 @@ function ajaxGetLatestSystemNotifications() {
 }
 
 function ajaxMarkAllNotificationsRead() {
-    $.post('/api/system-notifications/markAllRead', function () {
+    $.post({
+        url: '/api/system-notifications/markAllRead',
+        global: false
+    }).done(function () {
         ajaxGetLatestSystemNotifications();
     }).fail(function (xhr) {
         let msg = xhr.responseJSON?.message || 'Не удалось отметить уведомления как прочитанные';
@@ -128,7 +136,11 @@ function ajaxMarkAllNotificationsRead() {
 }
 
 function ajaxMarkNotificationRead(notificationId, onDone = null) {
-    $.post('/api/system-notifications/markRead', {id: notificationId}, function () {
+    $.post({
+        url: '/api/system-notifications/markRead',
+        data: { id: notificationId },
+        global: false
+    }).done(function () {
         if (onDone) {
             onDone();
         }

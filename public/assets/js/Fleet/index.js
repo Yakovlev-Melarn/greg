@@ -55,6 +55,8 @@ let fleetState = {
     companies: [],
     expenseCategories: [],
     expensesByVehicle: {},
+    /** Суммы по машинам за последний запрошенный период (для подписей в селекте статистики). */
+    expenseStatsVehicleSummary: [],
     filters: {
         plate: '',
         companyId: '',
@@ -294,6 +296,14 @@ function formatDateForInput(date) {
     return `${y}-${m}-${d}`;
 }
 
+/** Подписи на графике: ISO YYYY-MM-DD → ДД.ММ.ГГГГ (без сдвига из‑за часового пояса). */
+function formatExpenseStatsChartDate(isoDate) {
+    if (!isoDate || typeof isoDate !== 'string') return isoDate;
+    const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return isoDate;
+    return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
 function initDefaultExpenseStatsRange() {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -303,15 +313,32 @@ function initDefaultExpenseStatsRange() {
 
 function renderExpenseStatsVehicleOptions(vehiclesSummary) {
     const currentValue = $expenseStatsVehicleId.val();
+    const amountsById = {};
+    (vehiclesSummary || []).forEach(function (row) {
+        amountsById[String(row.vehicle_id)] = Number(row.total_amount || 0);
+    });
+
     $expenseStatsVehicleId.empty().append('<option value="">Все машины</option>');
 
-    (vehiclesSummary || []).forEach(function (vehicle) {
-        $expenseStatsVehicleId.append(`
-            <option value="${vehicle.vehicle_id}">
-                ${escapeHtml(vehicle.vehicle_label)} (${Number(vehicle.total_amount || 0).toFixed(2)})
-            </option>
-        `);
-    });
+    if (fleetState.vehicles.length) {
+        fleetState.vehicles.forEach(function (v) {
+            const amt = amountsById[String(v.id)] ?? 0;
+            const label = `${v.brand} ${v.model} (${v.plate_number})`;
+            $expenseStatsVehicleId.append(`
+                <option value="${v.id}">
+                    ${escapeHtml(label)} (${amt.toFixed(2)})
+                </option>
+            `);
+        });
+    } else {
+        (vehiclesSummary || []).forEach(function (vehicle) {
+            $expenseStatsVehicleId.append(`
+                <option value="${vehicle.vehicle_id}">
+                    ${escapeHtml(vehicle.vehicle_label)} (${Number(vehicle.total_amount || 0).toFixed(2)})
+                </option>
+            `);
+        });
+    }
 
     if (currentValue && $expenseStatsVehicleId.find(`option[value="${currentValue}"]`).length) {
         $expenseStatsVehicleId.val(currentValue);
@@ -371,7 +398,7 @@ function createExpenseLineChart(lineRows) {
     if (!lineCanvas) return null;
     const lineCtx = lineCanvas.getContext('2d');
 
-    const lineLabels = lineRows.map(function (row) { return row.date; });
+    const lineLabels = lineRows.map(function (row) { return formatExpenseStatsChartDate(row.date); });
     const lineValues = lineRows.map(function (row) { return Number(row.total_amount); });
 
     return new Chart(lineCtx, {
@@ -391,6 +418,14 @@ function createExpenseLineChart(lineRows) {
         options: {
             legend: { display: false },
             scales: {
+                xAxes: [{
+                    ticks: {
+                        autoSkip: true,
+                        maxTicksLimit: 14,
+                        maxRotation: 45,
+                        minRotation: 0
+                    }
+                }],
                 yAxes: [{
                     ticks: {
                         beginAtZero: true
@@ -399,6 +434,10 @@ function createExpenseLineChart(lineRows) {
             },
             tooltips: {
                 callbacks: {
+                    title: function (tooltipItems) {
+                        const item = tooltipItems[0];
+                        return item ? `Дата: ${item.xLabel}` : '';
+                    },
                     label: function (tooltipItem) {
                         return `Сумма: ${Number(tooltipItem.yLabel).toFixed(2)}`;
                     }
@@ -434,7 +473,8 @@ function loadExpenseStats() {
         vehicle_id: $expenseStatsVehicleId.val() || null
     }).done(function (data) {
         $('#expenseStatsTotal').text(Number(data.total_amount || 0).toFixed(2));
-        renderExpenseStatsVehicleOptions(data.vehicles || []);
+        fleetState.expenseStatsVehicleSummary = data.vehicles || [];
+        renderExpenseStatsVehicleOptions(fleetState.expenseStatsVehicleSummary);
         renderExpenseStatsCharts(data);
     }).fail(function (xhr) {
         showAlert(handleAjaxError(xhr), 'error');
@@ -446,6 +486,7 @@ function loadFleet() {
         .done(function (data) {
             fleetState.vehicles = data;
             renderFleet();
+            renderExpenseStatsVehicleOptions(fleetState.expenseStatsVehicleSummary || []);
         });
 }
 
@@ -556,7 +597,12 @@ $(document).on('click', '.js-delete-vehicle', function () {
 
     $.post('/api/fleet/destroy', { id: vehicleId })
         .done(function () {
-            loadFleet();
+            if (String($expenseStatsVehicleId.val()) === String(vehicleId)) {
+                $expenseStatsVehicleId.val('');
+            }
+            loadFleet().done(function () {
+                loadExpenseStats();
+            });
             showAlert('Машина удалена');
         })
         .fail(function (xhr) {

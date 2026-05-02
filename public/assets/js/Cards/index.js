@@ -290,6 +290,7 @@ function loadCards(append = false) {
 
     $.post({
         url: "api/cards/getlist",
+        global: false,
         data: {
             seller: $updateCardProcessButton.attr("data-seller"),
             page: state.page,
@@ -424,6 +425,7 @@ $(document).on('click', '.js-card-queue-photo-upload', function () {
 
     $.post({
         url: '/api/cards/uploadPhotos',
+        global: false,
         data: {
             card_id: cardId
         }
@@ -469,6 +471,7 @@ $(document).on('click', '.js-card-toggle-block', function () {
 
     $.post({
         url: endpoint,
+        global: false,
         data: {
             card_id: cardId
         }
@@ -498,6 +501,7 @@ $(document).on('click', '.js-card-toggle-block', function () {
 $updateCardProcessButton.click(function () {
     $.post({
         url: "api/cards/updatelist",
+        global: false,
         data: {
             'seller': $updateCardProcessButton.attr("data-seller"),
         }

@@ -14,6 +14,15 @@
     @viteReactRefresh
 </head>
 <body class="header-fixed">
+<div id="globalAjaxPreloader" class="global-ajax-preloader" aria-hidden="true">
+    <div class="global-ajax-preloader__backdrop"></div>
+    <div class="global-ajax-preloader__box">
+        <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Загрузка…</span>
+        </div>
+        <span class="global-ajax-preloader__text">Загрузка…</span>
+    </div>
+</div>
 <nav class="t-header">
     <div class="t-header-brand-wrapper">
         <a href="/" class="logoword">
@@ -186,7 +195,7 @@
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="/transport-reports">
                     <span class="link-title">Отчеты</span>
                     <i class="mdi mdi-file-chart link-icon"></i>
                 </a>

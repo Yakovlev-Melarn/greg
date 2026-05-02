@@ -1864,3 +1864,45 @@ textarea:focus-visible,
     outline: none !important;
     box-shadow: none !important;
 }
+
+/* Глобальный preloader для jQuery AJAX (ajaxStart / ajaxStop) */
+.global-ajax-preloader {
+    position: fixed;
+    inset: 0;
+    z-index: 200000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.global-ajax-preloader.is-visible {
+    display: flex;
+    pointer-events: auto;
+}
+
+.global-ajax-preloader__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.28);
+    backdrop-filter: blur(2px);
+}
+
+.global-ajax-preloader__box {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.25rem 1.75rem;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.18);
+}
+
+.global-ajax-preloader__text {
+    font-size: 0.9rem;
+    color: #475569;
+    user-select: none;
+}

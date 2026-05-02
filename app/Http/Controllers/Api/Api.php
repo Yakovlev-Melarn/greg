@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\BlockedCards as BlockedCardsAlias;
 use App\Http\Controllers\Api\Cards as CardsAlias;
 use App\Http\Controllers\Api\CloneProducts as CloneProductsAlias;
+use App\Http\Controllers\Api\DriverDailyReports as DriverDailyReportsAlias;
 use App\Http\Controllers\Api\Drivers as DriversAlias;
 use App\Http\Controllers\Api\Fleet as FleetAlias;
 use App\Http\Controllers\Api\Seller as SellerAlias;
@@ -26,6 +27,7 @@ class Api
         'system-notifications' => SystemNotificationsApi::class,
         'fleet' => FleetAlias::class,
         'drivers' => DriversAlias::class,
+        'driver-daily-reports' => DriverDailyReportsAlias::class,
         'transport-companies' => TransportCompaniesAlias::class,
     ];
 

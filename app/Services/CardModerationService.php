@@ -63,8 +63,17 @@ class CardModerationService
 
                 $updatedMappings = SkuMapping::where('origSku', $card->vendorCode)->update(['blocked' => 1]);
 
+                $queueSku = $this->resolveQueueSku($card);
+                if ($queueSku === null) {
+                    return [
+                        'supplierVendorCode' => $code,
+                        'status' => 'error',
+                        'message' => 'Не удалось определить идентификатор для очереди (пустые sku и nmID)',
+                    ];
+                }
+
                 $queue = ProductQueue::updateOrCreate(
-                    ['sku' => $card->sku],
+                    ['sku' => $queueSku],
                     [
                         'prefix' => null,
                         'price' => null,
@@ -79,6 +88,7 @@ class CardModerationService
                     'card' => [
                         'id' => $card->id,
                         'sku' => $card->sku,
+                        'queueSku' => $queueSku,
                         'vendorCode' => $card->vendorCode,
                     ],
                     'skuMappingUpdated' => $updatedMappings,
@@ -92,5 +102,27 @@ class CardModerationService
                 'message' => $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Ключ строки в product_queues: приоритетно wb sku карточки, иначе nmID (как в CloneProductsJob для очереди).
+     */
+    private function resolveQueueSku(Cards $card): ?string
+    {
+        $fromSku = trim((string) ($card->sku ?? ''));
+        if ($fromSku !== '') {
+            return $fromSku;
+        }
+
+        if ($card->nmID !== null && (string) $card->nmID !== '') {
+            return (string) $card->nmID;
+        }
+
+        $fromSvc = trim((string) ($card->supplierVendorCode ?? ''));
+        if ($fromSvc !== '') {
+            return $fromSvc;
+        }
+
+        return null;
     }
 }

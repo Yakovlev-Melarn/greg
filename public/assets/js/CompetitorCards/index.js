@@ -53,6 +53,7 @@ $(document).ready(function () {
                 url: '/api/clone-products/logs/',
                 data: {job_id: jobId},
                 method: 'POST',
+                global: false,
                 success: function (response) {
                     if (response.logs && response.logs.length > 0) {
                         updateLogs(response.logs);
