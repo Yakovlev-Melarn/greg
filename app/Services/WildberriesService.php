@@ -6,6 +6,7 @@ use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class WildberriesService
 {
@@ -427,11 +428,19 @@ class WildberriesService
             'Content-Type' => 'application/json',
         ])
             ->timeout(30)
-            ->post("https://content-api.wildberries.ru/content/v3/media/save", [
-                'nmId' => (int)$nmID,
-                'data' => $data
+            ->post('https://content-api.wildberries.ru/content/v3/media/save', [
+                'nmId' => (int) $nmID,
+                'data' => $data,
             ]);
-        print_r($result->json());
+
+        $json = $result->json();
+        if (! empty($json['error'])) {
+            Log::warning('Wildberries media/save returned error', [
+                'nmID' => $nmID,
+                'response' => $json,
+                'http_status' => $result->status(),
+            ]);
+        }
     }
 
     /**

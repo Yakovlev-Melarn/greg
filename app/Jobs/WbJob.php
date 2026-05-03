@@ -21,6 +21,8 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
@@ -114,6 +116,14 @@ class WbJob implements ShouldQueue
         $updatedAt = $cursorData['updatedAt'] ?? null;
         $total = (int)($cursorData['total'] ?? 0);
 
+        if ($this->shouldAccumulateWbNmIdsForOrphans($params, $context)) {
+            $seen = $params['wb_nm_ids_seen'] ?? [];
+            foreach ($this->extractNmIdsFromWbCards($cards) as $nmId) {
+                $seen[(int) $nmId] = true;
+            }
+            $params['wb_nm_ids_seen'] = $seen;
+        }
+
         if (! empty($params['cards_sync_notify_start'])) {
             $this->notifyCardsSyncStarted($params, $seller);
         }
@@ -146,7 +156,11 @@ class WbJob implements ShouldQueue
             } elseif (! empty($params['needs_catalog_backfill_after_incremental'])) {
                 $nextPayload['needs_catalog_backfill_after_incremental'] = true;
             }
+            if (! empty($params['cards_full_catalog_from_empty'])) {
+                $nextPayload['cards_full_catalog_from_empty'] = true;
+            }
             $this->carryCardsSyncRunId($nextPayload, $params);
+            $this->carryWbNmIdsAccumulator($nextPayload, $params);
             self::dispatch(self::ACTION_GET_CARD_LIST, $nextPayload)->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
 
             return;
@@ -154,6 +168,7 @@ class WbJob implements ShouldQueue
 
         // Последняя страница текущего режима (total < 100)
         if ($isCatalogBackfill) {
+            $this->pruneLocalCardsMissingFromWbCatalog($seller, $params, $context);
             $this->notifyCardsSyncFinishedIfTracked($params, $seller, count($cards));
 
             return;
@@ -166,6 +181,7 @@ class WbJob implements ShouldQueue
             $backfillPayload = [
                 'seller_id' => $context->sellerId,
                 'catalog_backfill' => true,
+                'wb_nm_ids_seen' => [],
                 'settings' => [
                     'settings' => [
                         'sort' => ['ascending' => true],
@@ -180,7 +196,318 @@ class WbJob implements ShouldQueue
             return;
         }
 
+        $this->pruneLocalCardsMissingFromWbCatalog($seller, $params, $context);
         $this->notifyCardsSyncFinishedIfTracked($params, $seller, count($cards));
+    }
+
+    /**
+     * nmID из ответа WB (включая позиции без сохранённого фото — они всё равно есть в каталоге).
+     *
+     * @return list<int>
+     */
+    private function extractNmIdsFromWbCards(array $cards): array
+    {
+        $ids = [];
+        foreach ($cards as $card) {
+            if (! empty($card['nmID'])) {
+                $ids[] = (int) $card['nmID'];
+            }
+        }
+
+        return $ids;
+    }
+
+    private function shouldAccumulateWbNmIdsForOrphans(array $params, CardListContext $context): bool
+    {
+        if ($this->isTargetedCardListFetch($params, $context)) {
+            return false;
+        }
+
+        return ! empty($params['catalog_backfill'])
+            || ! empty($params['cards_full_catalog_from_empty']);
+    }
+
+    private function carryWbNmIdsAccumulator(array &$payload, array $params): void
+    {
+        if (! empty($params['wb_nm_ids_seen'])) {
+            $payload['wb_nm_ids_seen'] = $params['wb_nm_ids_seen'];
+        }
+    }
+
+    /**
+     * Удаляет из cards и skuMapping записи продавца, которых нет в полном списке nmID WB после полного обхода каталога.
+     */
+    private function pruneLocalCardsMissingFromWbCatalog(Sellers $seller, array $params, CardListContext $context): void
+    {
+        if (! $this->shouldAccumulateWbNmIdsForOrphans($params, $context)) {
+            return;
+        }
+
+        $wbSet = array_keys($params['wb_nm_ids_seen'] ?? []);
+        $this->pruneLocalCardsRemovedFromWb($seller, $wbSet);
+        $this->reconcileCardsWithSkuMappingAfterFullCatalog($seller);
+    }
+
+    /**
+     * После полного обхода WB: очистка «висячих» skuMapping, подстановка sku с nmID, удаление висячих карточек (&gt; WB) через корзину WB.
+     */
+    private function reconcileCardsWithSkuMappingAfterFullCatalog(Sellers $seller): void
+    {
+        $deletedMappings = $this->deleteSkuMappingsWithoutCards();
+        if ($deletedMappings > 0) {
+            Log::info('WbJob removed skuMapping rows without matching cards', [
+                'seller_id' => $seller->id,
+                'deleted_mappings' => $deletedMappings,
+            ]);
+        }
+
+        $filled = $this->backfillNullCardSkuFromSkuMapping($seller);
+        if ($filled > 0) {
+            Log::info('WbJob backfilled cards.sku from skuMapping.wbSku', [
+                'seller_id' => $seller->id,
+                'updated_cards' => $filled,
+            ]);
+        }
+
+        $trashed = $this->trashUnmappedSupplierGt10CardsAndDelete($seller);
+        if ($trashed > 0) {
+            Log::info('WbJob moved unmapped orphan cards (supplier>10, sku null) to WB trash and removed locally', [
+                'seller_id' => $seller->id,
+                'removed_cards' => $trashed,
+            ]);
+        }
+    }
+
+    /**
+     * Строки skuMapping без соответствующей карточки (Sima: origSku = vendorCode, WB: wbSku = vendorCode).
+     */
+    private function deleteSkuMappingsWithoutCards(): int
+    {
+        return SkuMapping::query()
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('cards as c')
+                    ->where(function ($w) {
+                        $w->where(function ($a) {
+                            $a->where('c.supplier', 20)
+                                ->whereColumn('c.vendorCode', 'skuMapping.origSku');
+                        })->orWhere(function ($a) {
+                            $a->where('c.supplier', 10)
+                                ->whereColumn('c.vendorCode', 'skuMapping.wbSku');
+                        });
+                    });
+            })
+            ->delete();
+    }
+
+    /**
+     * Дописывает cards.sku из skuMapping.wbSku для привязанных карточек с пустым sku.
+     */
+    private function backfillNullCardSkuFromSkuMapping(Sellers $seller): int
+    {
+        $sellerId = $seller->id;
+
+        $n20 = DB::update(
+            'UPDATE cards SET sku = (
+                SELECT sm.wbSku FROM skuMapping sm WHERE sm.origSku = cards.vendorCode LIMIT 1
+            )
+            WHERE sellerID = ?
+              AND supplier = 20
+              AND sku IS NULL
+              AND EXISTS (SELECT 1 FROM skuMapping sm WHERE sm.origSku = cards.vendorCode)',
+            [$sellerId]
+        );
+
+        $n10 = DB::update(
+            'UPDATE cards SET sku = (
+                SELECT sm.wbSku FROM skuMapping sm WHERE sm.wbSku = cards.vendorCode LIMIT 1
+            )
+            WHERE sellerID = ?
+              AND supplier = 10
+              AND sku IS NULL
+              AND EXISTS (SELECT 1 FROM skuMapping sm WHERE sm.wbSku = cards.vendorCode)',
+            [$sellerId]
+        );
+
+        return (int) $n20 + (int) $n10;
+    }
+
+    /**
+     * Карточки с supplier &gt; 10 (не только WB), без строки в skuMapping и с пустым sku — в корзину WB и удаление из БД.
+     */
+    private function trashUnmappedSupplierGt10CardsAndDelete(Sellers $seller): int
+    {
+        $service = new WildberriesService($seller->wb_api_key, []);
+        $removed = 0;
+
+        CardsModel::query()
+            ->where('sellerID', $seller->id)
+            ->where('supplier', '>', 10)
+            ->whereNull('sku')
+            ->orderBy('id')
+            ->chunkById(50, function ($cards) use ($service, &$removed) {
+                foreach ($cards as $card) {
+                    if ($this->cardHasMatchingSkuMapping($card)) {
+                        continue;
+                    }
+                    $nmId = (int) $card->nmID;
+                    if ($nmId <= 0) {
+                        Log::warning('WbJob skip trash: card has no nmID', [
+                            'card_id' => $card->id,
+                            'seller_id' => $card->sellerID,
+                        ]);
+
+                        continue;
+                    }
+                    try {
+                        if ($service->moveCardsToTrash([$nmId])) {
+                            $card->delete();
+                            $removed++;
+                        } else {
+                            Log::warning('WbJob trash API failed for orphan card', [
+                                'card_id' => $card->id,
+                                'nmID' => $nmId,
+                            ]);
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('WbJob trash orphan card exception', [
+                            'card_id' => $card->id,
+                            'nmID' => $nmId,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            });
+
+        return $removed;
+    }
+
+    private function cardHasMatchingSkuMapping(CardsModel $card): bool
+    {
+        $supplier = (int) $card->supplier;
+        $vc = (string) ($card->vendorCode ?? '');
+        if ($vc === '') {
+            return false;
+        }
+        if ($supplier === 20) {
+            return SkuMapping::query()->where('origSku', $vc)->exists();
+        }
+        if ($supplier === 10) {
+            return SkuMapping::query()->where('wbSku', $vc)->exists();
+        }
+
+        return SkuMapping::query()
+            ->where(function ($q) use ($vc) {
+                $q->where('origSku', $vc)->orWhere('wbSku', $vc);
+            })
+            ->exists();
+    }
+
+    /**
+     * @param  list<int>  $wbNmIds
+     */
+    private function pruneLocalCardsRemovedFromWb(Sellers $seller, array $wbNmIds): void
+    {
+        $wbLookup = [];
+        foreach ($wbNmIds as $id) {
+            $wbLookup[(int) $id] = true;
+        }
+
+        $locals = CardsModel::query()
+            ->where('sellerID', $seller->id)
+            ->get();
+
+        $removed = 0;
+        foreach ($locals as $card) {
+            $nmId = (int) $card->nmID;
+            if ($nmId === 0) {
+                continue;
+            }
+            if (isset($wbLookup[$nmId])) {
+                continue;
+            }
+
+            DB::transaction(function () use ($card) {
+                $this->deleteSkuMappingsForCard($card);
+                $card->delete();
+            });
+            $removed++;
+        }
+
+        if ($removed > 0) {
+            Log::info('WbJob removed local cards absent from WB catalog', [
+                'seller_id' => $seller->id,
+                'removed' => $removed,
+            ]);
+        }
+    }
+
+    private function deleteSkuMappingsForCard(CardsModel $card): void
+    {
+        $supplier = (int) $card->supplier;
+        $vendorCode = (string) ($card->vendorCode ?? '');
+        if ($vendorCode === '') {
+            return;
+        }
+
+        if ($supplier === 20) {
+            SkuMapping::query()->where('origSku', $vendorCode)->delete();
+
+            return;
+        }
+
+        if ($supplier === 10) {
+            SkuMapping::query()->where('wbSku', $vendorCode)->delete();
+        }
+    }
+
+    /**
+     * Убирает ссылки на слоты без файла: WB не может подтянуть такое медиа и падает на media/save.
+     *
+     * @param  list<string>  $urls
+     * @return list<string>
+     */
+    private function filterReachableBasketImageUrls(array $urls): array
+    {
+        $out = [];
+        foreach ($urls as $url) {
+            if ($this->isBasketImageUrlReachable($url)) {
+                $out[] = $url;
+            } else {
+                Log::warning('WbJob skipped unreachable basket image URL before WB media upload', ['url' => $url]);
+            }
+        }
+
+        return $out;
+    }
+
+    private function isBasketImageUrlReachable(string $url): bool
+    {
+        try {
+            $head = Http::timeout(10)
+                ->connectTimeout(5)
+                ->head($url);
+
+            if ($head->successful()) {
+                return true;
+            }
+
+            if (in_array($head->status(), [405, 501], true)) {
+                $range = Http::timeout(10)
+                    ->connectTimeout(5)
+                    ->withHeaders(['Range' => 'bytes=0-4095'])
+                    ->get($url);
+
+                return $range->successful();
+            }
+        } catch (\Throwable $e) {
+            Log::debug('WbJob basket image availability check failed', [
+                'url' => $url,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return false;
     }
 
     private function carryCardsSyncRunId(array &$payload, array $params): void
@@ -344,6 +671,18 @@ class WbJob implements ShouldQueue
             $data[] = "https://basket-{$basket['basket']}.wbbasket.ru/vol{$basket['small']}"
                 . "/part{$basket['mid']}/{$payload->supplierId}/images/big/{$i}.webp";
         }
+
+        $data = $this->filterReachableBasketImageUrls($data);
+        if ($data === []) {
+            Log::warning('WbJob uploadPhotos skipped: no reachable basket image URLs', [
+                'nmID' => $payload->nmId,
+                'supplierId' => $payload->supplierId,
+                'photo_count_declared' => $photoCount,
+            ]);
+
+            return;
+        }
+
         $service->uploadPhotos($payload->nmId, $data);
 
         // Только для ручного обновления: сразу сохраняем первую ссылку на фото в cards.photo.
