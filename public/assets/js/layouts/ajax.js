@@ -149,3 +149,89 @@ function ajaxMarkNotificationRead(notificationId, onDone = null) {
         alert('Ошибка: ' + msg);
     });
 }
+
+var shopsModalRef = null;
+
+function shopsAjaxFail(xhr) {
+    let msg = xhr.responseJSON?.message;
+    if (!msg && xhr.responseJSON?.errors) {
+        msg = Object.values(xhr.responseJSON.errors).flat().join('\n');
+    }
+    alert('Ошибка: ' + (msg || 'Неизвестная ошибка'));
+}
+
+function ajaxGetShops(modal) {
+    if (modal) {
+        shopsModalRef = modal;
+    }
+    $.post({
+        url: "api/sellers/list",
+        data: { with_warehouses: 1 },
+        global: Boolean(modal),
+    }).done(function (data) {
+        window.__shopsListCache = {};
+        if (Array.isArray(data)) {
+            data.forEach(function (s) {
+                window.__shopsListCache[s.id] = s;
+            });
+        }
+        let tmpl = _.template($("#shops-template").html());
+        let html = tmpl({ sellers: data || [] });
+        if (shopsModalRef) {
+            shopsModalRef.content(html);
+        }
+    }).fail(shopsAjaxFail);
+}
+
+function refreshShopsModal() {
+    if (shopsModalRef) {
+        shopsModalRef.window.find(".modal-title").text('Магазины');
+        ajaxGetShops(shopsModalRef);
+    }
+}
+
+function ajaxStoreSeller(payload) {
+    $.post('/api/sellers/store', payload).done(function () {
+        refreshShopsModal();
+    }).fail(shopsAjaxFail);
+}
+
+function ajaxUpdateSeller(payload) {
+    $.post('/api/sellers/update', payload).done(function () {
+        refreshShopsModal();
+    }).fail(shopsAjaxFail);
+}
+
+function ajaxDestroySeller(id) {
+    $.post('/api/sellers/destroy', { id: id }).done(function () {
+        refreshShopsModal();
+    }).fail(shopsAjaxFail);
+}
+
+function ajaxPostJson(url, payload) {
+    return $.ajax({
+        url: url,
+        method: 'POST',
+        contentType: 'application/json; charset=UTF-8',
+        data: JSON.stringify(payload),
+        dataType: 'json',
+    });
+}
+
+function ajaxStoreWarehouse(payload) {
+    ajaxPostJson('/api/sellers/warehouseStore', payload)
+        .done(refreshShopsModal)
+        .fail(shopsAjaxFail);
+}
+
+function ajaxUpdateWarehouse(payload) {
+    ajaxPostJson('/api/sellers/warehouseUpdate', payload)
+        .done(refreshShopsModal)
+        .fail(shopsAjaxFail);
+}
+
+function ajaxDestroyWarehouse(id) {
+    ajaxPostJson('/api/sellers/warehouseDestroy', { id: id })
+        .done(refreshShopsModal)
+        .fail(shopsAjaxFail);
+}

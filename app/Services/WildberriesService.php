@@ -85,11 +85,15 @@ class WildberriesService
         }
 
         $result = $this->sendCardsUpload($payload, 60);
+        $usedIndividualUpload = false;
+
         if ($this->needsDimensionsArrayFormat($result)) {
             $dimensionsArrayPayload = $this->withDimensionsArrayPayload($payload);
             $retryResult = $this->sendCardsUpload($dimensionsArrayPayload, 60);
             if (($retryResult['success'] ?? false) === true) {
                 $result = $retryResult;
+            } else {
+                $payload = $dimensionsArrayPayload;
             }
         }
 
@@ -97,10 +101,21 @@ class WildberriesService
         // In this case fallback to per-card upload to isolate bad items.
         if ($this->needsDimensionsArrayFormat($result) && count($payload) > 1) {
             $result = $this->uploadCardsIndividually($payload, $itemsMeta, $skippedItems);
+            $usedIndividualUpload = true;
         }
 
-        $result['items'] = $itemsMeta;
-        $result['skipped_items'] = $skippedItems;
+        // Same batch rejection when one card lacks required subject characteristics — isolate by vendor.
+        if (!$usedIndividualUpload && $this->needsCharacteristicsBatchIsolateFailure($result) && count($payload) > 1) {
+            $result = $this->uploadCardsIndividually($payload, $itemsMeta, $skippedItems);
+            $usedIndividualUpload = true;
+        }
+
+        if (($result['success'] ?? false) === true && !$usedIndividualUpload) {
+            $result['items'] = $itemsMeta;
+        }
+        if (!$usedIndividualUpload) {
+            $result['skipped_items'] = $skippedItems;
+        }
         return $result;
     }
 
@@ -109,26 +124,49 @@ class WildberriesService
      */
     private function sendCardsUpload(array $payload, int $timeout): array
     {
-        $attempts = 3;
         $lastExceptionMessage = null;
+        $connectionFailures = 0;
+        $rateLimitRetries = 0;
+        $maxConnectionRetries = 3;
+        $maxRateLimitRetries = 12;
 
-        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        while (true) {
             try {
                 $response = Http::withHeaders([
                     'Authorization' => $this->apiKey,
                     'Content-Type' => 'application/json',
                 ])
-                    ->timeout($timeout + (($attempt - 1) * 15))
+                    ->timeout($timeout + min($rateLimitRetries * 5, 60))
                     ->post($this->baseUrl . 'cards/upload', $payload);
 
-                return $this->handleResponse($response, $payload);
-            } catch (ConnectionException $e) {
-                $lastExceptionMessage = $e->getMessage();
-                if ($attempt < $attempts) {
-                    // Small backoff for transient WB TLS/network issues.
-                    sleep(2 * $attempt);
+                $result = $this->handleResponse($response, $payload);
+
+                if (($result['success'] ?? false) === true) {
+                    return $result;
+                }
+
+                if ($this->isRateLimitedResult($result, $response)) {
+                    $rateLimitRetries++;
+                    if ($rateLimitRetries > $maxRateLimitRetries) {
+                        return $result;
+                    }
+                    $seconds = $this->rateLimitBackoffSeconds($rateLimitRetries, $response);
+                    Log::warning('Wildberries cards/upload rate limited, retry after backoff', [
+                        'sleep_seconds' => $seconds,
+                        'attempt' => $rateLimitRetries,
+                    ]);
+                    sleep($seconds);
                     continue;
                 }
+
+                return $result;
+            } catch (ConnectionException $e) {
+                $lastExceptionMessage = $e->getMessage();
+                $connectionFailures++;
+                if ($connectionFailures >= $maxConnectionRetries) {
+                    break;
+                }
+                sleep(2 * $connectionFailures);
             }
         }
 
@@ -144,6 +182,47 @@ class WildberriesService
         ];
     }
 
+    private function isRateLimitedResult(array $result, Response $response): bool
+    {
+        if ($response->status() === 429) {
+            return true;
+        }
+
+        $err = $result['error'] ?? [];
+        if (!is_array($err)) {
+            return false;
+        }
+
+        if ((int)($err['status'] ?? 0) === 429) {
+            return true;
+        }
+
+        $title = mb_strtolower((string)($err['title'] ?? ''));
+        if (str_contains($title, 'too many requests')) {
+            return true;
+        }
+
+        $detail = mb_strtolower((string)($err['detail'] ?? ''));
+        if (str_contains($detail, 'global limiter') ||
+            str_contains($detail, 'per seller') ||
+            str_contains($detail, 'limited by')) {
+            return true;
+        }
+
+        $errorText = mb_strtolower((string)($err['errorText'] ?? ''));
+        return str_contains($errorText, 'too many requests');
+    }
+
+    private function rateLimitBackoffSeconds(int $attempt, Response $response): int
+    {
+        $retryAfter = $response->header('Retry-After');
+        if ($retryAfter !== null && is_numeric($retryAfter)) {
+            return max(1, min(120, (int)$retryAfter));
+        }
+
+        return min(60, max(2, (int) pow(2, min($attempt, 6))));
+    }
+
     private function needsDimensionsArrayFormat(array $result): bool
     {
         if (($result['success'] ?? false) === true) {
@@ -152,6 +231,40 @@ class WildberriesService
         $errorText = mb_strtolower((string)($result['error']['errorText'] ?? ''));
         return str_contains($errorText, 'вес с упаковкой') &&
             str_contains($errorText, 'variants[i].dimensions[j].weightbrutto');
+    }
+
+    /**
+     * Whole batch fails with HTTP 400 when any card is missing required characteristics for its subject.
+     */
+    private function needsCharacteristicsBatchIsolateFailure(array $result): bool
+    {
+        if (($result['success'] ?? false) === true) {
+            return false;
+        }
+        if ((int)($result['http_code'] ?? 0) !== 400) {
+            return false;
+        }
+        $errorText = mb_strtolower((string)($result['error']['errorText'] ?? ''));
+        if (str_contains($errorText, 'required characteristics') ||
+            str_contains($errorText, 'lacks required characteristics')) {
+            return true;
+        }
+        if (str_contains($errorText, 'характеристик') && str_contains($errorText, 'обязательн')) {
+            return true;
+        }
+        $additional = $result['error']['additionalErrors'] ?? [];
+        if (!is_array($additional) || $additional === []) {
+            return false;
+        }
+        foreach ($additional as $msg) {
+            $m = mb_strtolower((string)$msg);
+            if (str_contains($m, 'missing required characteristics') ||
+                str_contains($m, 'required characteristics')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function withDimensionsArrayPayload(array $payload): array
@@ -184,8 +297,14 @@ class WildberriesService
         $successfulItems = [];
         $failedItems = $initialSkippedItems;
         $lastError = null;
+        /** Pause between single-card calls to stay under WB per-seller rate limits */
+        $pauseMicrosBetweenCards = max(0, (int) config('services.wildberries.upload_pause_ms_between_cards', 500)) * 1000;
 
         foreach ($payload as $index => $cardPayload) {
+            if ($index > 0 && $pauseMicrosBetweenCards > 0) {
+                usleep($pauseMicrosBetweenCards);
+            }
+
             $singlePayload = [$cardPayload];
             $singleResult = $this->sendCardsUpload($singlePayload, 30);
 

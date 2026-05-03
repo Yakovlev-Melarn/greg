@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'wildberries' => [
+        // Delay between per-card cards/upload calls (clone fallback) to reduce 429 from global limiter
+        'upload_pause_ms_between_cards' => (int) env('WB_UPLOAD_PAUSE_MS_BETWEEN_CARDS', 500),
+    ],
+
 ];

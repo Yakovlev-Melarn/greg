@@ -106,7 +106,6 @@ class BlockedCardsQuarantineTest extends TestCase
     {
         $seller = new Sellers;
         $seller->name = 'Seller Test';
-        $seller->wb_warehouse_id = 1;
         $seller->wb_api_key = 'test-key';
         $seller->save();
 

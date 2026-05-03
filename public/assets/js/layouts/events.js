@@ -1,10 +1,11 @@
 $("#sellersModal").on('click', function (e) {
-    let modal = new Modal({
+    e.preventDefault();
+    shopsModalRef = new Modal({
         title: 'Магазины'
     });
-    modal.clear();
-    modal.show();
-    ajaxGetSellers(null, modal);
+    shopsModalRef.clear();
+    shopsModalRef.show();
+    ajaxGetShops(shopsModalRef);
 });
 $("#suppliersModal").on('click', function () {
     loadSuppliers();
@@ -88,6 +89,141 @@ $(document).on('click', '.js-mark-read-notification-page', function () {
         row.find('.js-mark-read-notification-page').remove();
         ajaxGetLatestSystemNotifications();
     });
+});
+
+$(document).on('click', '#shopAddBtn', function () {
+    if (!shopsModalRef) {
+        return;
+    }
+    shopsModalRef.window.find(".modal-title").text('Добавить магазин');
+    let tmpl = _.template($("#shop-form-template").html());
+    shopsModalRef.content(tmpl({}));
+    $('#shopFormId').val('');
+    $('#shopFormName').val('');
+    $('#shopFormApiKey').val('');
+});
+
+$(document).on('click', '.shopEditBtn', function () {
+    var id = $(this).data('shop-id');
+    var s = window.__shopsListCache[id];
+    if (!s || !shopsModalRef) {
+        return;
+    }
+    shopsModalRef.window.find(".modal-title").text('Изменить магазин');
+    let tmpl = _.template($("#shop-form-template").html());
+    shopsModalRef.content(tmpl({}));
+    $('#shopFormId').val(s.id);
+    $('#shopFormName').val(s.name);
+    $('#shopFormApiKey').val(s.wb_api_key);
+});
+
+$(document).on('click', '#shopFormCancel', function () {
+    if (!shopsModalRef) {
+        return;
+    }
+    shopsModalRef.window.find(".modal-title").text('Магазины');
+    ajaxGetShops(shopsModalRef);
+});
+
+$(document).on('submit', '#shopForm', function (e) {
+    e.preventDefault();
+    var id = $('#shopFormId').val();
+    var payload = {
+        name: $('#shopFormName').val(),
+        wb_api_key: $('#shopFormApiKey').val(),
+    };
+    if (id) {
+        payload.id = parseInt(id, 10);
+        ajaxUpdateSeller(payload);
+    } else {
+        ajaxStoreSeller(payload);
+    }
+});
+
+$(document).on('click', '.shopDeleteBtn', function () {
+    var id = $(this).data('shop-id');
+    if (!confirm('Удалить магазин и все связанные склады?')) {
+        return;
+    }
+    ajaxDestroySeller(id);
+});
+
+$(document).on('click', '.warehouseAddBtn', function () {
+    var sellerId = $(this).data('seller-id');
+    if (!shopsModalRef) {
+        return;
+    }
+    shopsModalRef.window.find(".modal-title").text('Новый склад');
+    let tmpl = _.template($("#shop-warehouse-form-template").html());
+    shopsModalRef.content(tmpl({}));
+    $('#whFormRowId').val('');
+    $('#whFormSellerId').val(sellerId);
+    $('#whFormWbId').val('');
+    $('#whFormName').val('');
+    $('#whFormSupplier').val('');
+});
+
+$(document).on('click', '.warehouseEditBtn', function () {
+    var whId = $(this).data('wh-id');
+    var sellerId = $(this).data('seller-id');
+    var seller = window.__shopsListCache[sellerId];
+    if (!seller || !shopsModalRef) {
+        return;
+    }
+    var wh = null;
+    (seller.warehouses || []).forEach(function (w) {
+        if (String(w.id) === String(whId)) {
+            wh = w;
+        }
+    });
+    if (!wh) {
+        return;
+    }
+    shopsModalRef.window.find(".modal-title").text('Изменить склад');
+    let tmpl = _.template($("#shop-warehouse-form-template").html());
+    shopsModalRef.content(tmpl({}));
+    $('#whFormRowId').val(wh.id);
+    $('#whFormSellerId').val(sellerId);
+    $('#whFormWbId').val(wh.wb_warehouse_id);
+    $('#whFormName').val(wh.name || '');
+    $('#whFormSupplier').val(wh.supplier != null ? String(wh.supplier) : '');
+});
+
+$(document).on('click', '#whFormCancel', function () {
+    if (!shopsModalRef) {
+        return;
+    }
+    shopsModalRef.window.find(".modal-title").text('Магазины');
+    ajaxGetShops(shopsModalRef);
+});
+
+$(document).on('submit', '#shopWarehouseForm', function (e) {
+    e.preventDefault();
+    var rowId = $('#whFormRowId').val();
+    var sellerId = parseInt($('#whFormSellerId').val(), 10);
+    var wbId = parseInt($('#whFormWbId').val(), 10);
+    var nameVal = $('#whFormName').val().trim();
+    var supVal = $('#whFormSupplier').val();
+    var payload = {
+        wb_warehouse_id: wbId,
+        name: nameVal === '' ? null : nameVal,
+        supplier: supVal === '' ? null : parseInt(supVal, 10),
+    };
+    if (rowId) {
+        payload.id = parseInt(rowId, 10);
+        ajaxUpdateWarehouse(payload);
+    } else {
+        payload.seller_id = sellerId;
+        ajaxStoreWarehouse(payload);
+    }
+});
+
+$(document).on('click', '.warehouseDeleteBtn', function () {
+    var id = $(this).data('wh-id');
+    if (!confirm('Удалить этот склад?')) {
+        return;
+    }
+    ajaxDestroyWarehouse(id);
 });
 
 setInterval(function () {

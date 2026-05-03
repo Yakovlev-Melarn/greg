@@ -582,14 +582,15 @@ class WbJob implements ShouldQueue
         }
         $cards = $this->getSellerCards($seller);
         $vendorToChrtMap = $this->buildVendorToChrtMap($cards);
-        $stockData = $this->fetchStockQuantities($cards, $vendorToChrtMap);
+        $vendorToSupplierMap = $this->buildVendorToSupplierMap($cards);
+        $stockData = $this->fetchStockQuantities($cards, $vendorToChrtMap, $vendorToSupplierMap);
         $this->sendStockUpdates($seller, $stockData);
     }
 
     private function getSellerCards(Sellers $seller): Collection
     {
         return $seller->cards()
-            ->where('supplier', 10)
+            ->whereIn('supplier', [10, 20])
             ->get();
     }
 
@@ -598,7 +599,24 @@ class WbJob implements ShouldQueue
         return $cards->pluck('chrtID', 'vendorCode')->toArray();
     }
 
-    private function fetchStockQuantities(Collection $cards, array $vendorToChrtMap): array
+    /**
+     * @return array<string, int>
+     */
+    private function buildVendorToSupplierMap(Collection $cards): array
+    {
+        $map = [];
+        foreach ($cards as $card) {
+            $vc = (string) ($card->vendorCode ?? '');
+            if ($vc === '') {
+                continue;
+            }
+            $map[$vc] = (int) $card->supplier;
+        }
+
+        return $map;
+    }
+
+    private function fetchStockQuantities(Collection $cards, array $vendorToChrtMap, array $vendorToSupplierMap): array
     {
         $vendorCodes = $cards->pluck('vendorCode')->toArray();
         $chunks = array_chunk($vendorCodes, self::STOCK_CHUNK_SIZE);
@@ -612,13 +630,16 @@ class WbJob implements ShouldQueue
             foreach ($stocks as $vendorCode => $quantity) {
                 if (isset($vendorToChrtMap[$vendorCode])) {
                     $chrtID = $vendorToChrtMap[$vendorCode];
+                    $supplier = $vendorToSupplierMap[$vendorCode] ?? 10;
                     $result[] = [
                         'chrtId' => $chrtID,
-                        'amount' => $quantity > self::STOCK_MAX_AMOUNT ? self::STOCK_MAX_AMOUNT : 0
+                        'amount' => $quantity > self::STOCK_MAX_AMOUNT ? self::STOCK_MAX_AMOUNT : 0,
+                        'supplier' => $supplier,
                     ];
                 }
             }
         }
+
         return $result;
     }
 
@@ -627,13 +648,82 @@ class WbJob implements ShouldQueue
      */
     private function sendStockUpdates(Sellers $seller, array $stockData): void
     {
-        $chunks = array_chunk($stockData, self::STOCK_UPDATE_CHUNK_SIZE);
+        $seller->loadMissing('warehouses');
+
+        $defaultWarehouse = $seller->warehouses->firstWhere('supplier', null);
+        $supplier20Warehouse = $seller->warehouses->firstWhere('supplier', 20);
+
+        $forSupplier20 = [];
+        $forDefault = [];
+
+        foreach ($stockData as $row) {
+            $supplier = (int) ($row['supplier'] ?? 10);
+            $payload = [
+                'chrtId' => $row['chrtId'],
+                'amount' => $row['amount'],
+            ];
+            if ($supplier === 20) {
+                $forSupplier20[] = $payload;
+            } else {
+                $forDefault[] = $payload;
+            }
+        }
+
         $service = new WildberriesService($seller->wb_api_key, []);
-        $total = count($chunks);
-        echo "Очередь на отправку из " . $total . " пачек\n";
-        foreach ($chunks as $chunk) {
-            $service->updateStocks($seller->wb_warehouse_id, $chunk);
-            echo "Осталось " . ($total--) . " пачек\n";
+
+        $routes = [
+            [
+                'chunks' => $forSupplier20,
+                'warehouse' => $supplier20Warehouse,
+                'label' => 'supplier=20',
+                'route_key' => 'supplier_20',
+            ],
+            [
+                'chunks' => $forDefault,
+                'warehouse' => $defaultWarehouse,
+                'label' => 'по умолчанию (supplier≠20)',
+                'route_key' => 'default',
+            ],
+        ];
+
+        foreach ($routes as $route) {
+            if ($route['chunks'] === []) {
+                continue;
+            }
+
+            $warehouse = $route['warehouse'];
+            if (!$warehouse) {
+                Log::warning('WbJob: no warehouse configured for stock route', [
+                    'seller_id' => $seller->id,
+                    'route' => $route['route_key'],
+                    'label' => $route['label'],
+                ]);
+
+                SystemNotification::create([
+                    'title' => 'Остатки WB: склад не настроен',
+                    'message' => sprintf(
+                        'Для магазина «%s» не задан склад для маршрута «%s». Обновление остатков для этой группы пропущено.',
+                        $seller->name,
+                        $route['label']
+                    ),
+                    'level' => 'warning',
+                    'source' => 'wb_stock_sync',
+                    'meta' => [
+                        'seller_id' => $seller->id,
+                        'route' => $route['route_key'],
+                    ],
+                ]);
+
+                continue;
+            }
+
+            $chunks = array_chunk($route['chunks'], self::STOCK_UPDATE_CHUNK_SIZE);
+            $total = count($chunks);
+            echo "Очередь на отправку ({$route['label']}) из " . $total . " пачек\n";
+            foreach ($chunks as $chunk) {
+                $service->updateStocks((int) $warehouse->wb_warehouse_id, $chunk);
+                echo "Осталось " . ($total--) . " пачек\n";
+            }
         }
     }
 

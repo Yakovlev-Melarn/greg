@@ -442,11 +442,27 @@ class CloneProductsJob implements ShouldQueue
                         $this->logSuccess("Продукт {$product->sku} успешно добавлен и удален из очереди");
                     }
                 } else {
+                    $err = $result['error'] ?? [];
+                    $errorText = is_array($err)
+                        ? (string)($err['errorText'] ?? $err['message'] ?? '')
+                        : (string)$err;
+                    if ($errorText === '') {
+                        $errorText = 'Неизвестная ошибка';
+                    }
+
                     foreach ($batchItems as $item) {
                         $product = $item['product'];
-                        $this->logWarning("Ошибка batch upload для продукта {$product->sku}");
+                        if (isset($skippedByQueueSku[(string)$product->sku])) {
+                            continue;
+                        }
+                        $this->logWarning(
+                            "Ошибка batch upload для продукта {$product->sku}: {$errorText}"
+                        );
                     }
-                    print_r($result);
+
+                    $this->logInfo(
+                        'Ответ WB (batch failed): ' . json_encode($result, JSON_UNESCAPED_UNICODE)
+                    );
                 }
             } catch (\Exception $e) {
                 foreach ($batchItems as $item) {
