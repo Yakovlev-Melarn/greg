@@ -18,17 +18,22 @@ class DriverDailyReports
     public function list(Request $request): array
     {
         $validated = $request->validate([
-            'year' => ['required', 'integer', 'min:2000', 'max:2100'],
-            'month' => ['required', 'integer', 'min:1', 'max:12'],
+            'week_monday' => ['required', 'date_format:Y-m-d'],
             'driver_id' => ['nullable', 'integer', 'exists:drivers,id'],
         ]);
 
-        $start = Carbon::create($validated['year'], $validated['month'], 1)->startOfDay();
-        $end = (clone $start)->endOfMonth();
+        $monday = Carbon::parse($validated['week_monday'])->startOfDay();
+        if (! $monday->isMonday()) {
+            throw ValidationException::withMessages([
+                'week_monday' => 'Укажите понедельник недели (календарная неделя с понедельника по воскресенье).',
+            ]);
+        }
+
+        $sunday = $monday->copy()->addDays(6);
 
         $query = DriverDailyReport::query()
             ->with('driver')
-            ->whereBetween('report_date', [$start->toDateString(), $end->toDateString()]);
+            ->whereBetween('report_date', [$monday->toDateString(), $sunday->toDateString()]);
 
         if (! empty($validated['driver_id'])) {
             $query->where('driver_id', (int) $validated['driver_id']);

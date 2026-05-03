@@ -2,28 +2,43 @@
 @extends('layouts.app')
 @section('title', ' — отчёты по водителям')
 @section('content')
-    <div class="page-content-wrapper page-fleet">
+    <div class="page-content-wrapper page-fleet page-transport-reports">
         <div class="page-content-wrapper-inner">
             <div class="content-viewport">
-                <div class="glass-panel cards-toolbar">
-                    <div class="cards-toolbar__title">
-                        <h4 class="mb-1">Отчёты</h4>
-                        <p class="text-muted mb-0">Учёт смены по водителю и дате: часы, ночная погрузка, ручной подъём, маршрутный лист.</p>
-                    </div>
-                    <div class="d-flex flex-wrap align-items-end" style="gap: 0.75rem;">
-                        <div class="form-group mb-0">
-                            <label for="filterReportMonth" class="mb-1 d-block">Месяц</label>
-                            <input type="month" class="form-control" id="filterReportMonth" name="filter_month">
+                <div class="glass-panel cards-toolbar transport-reports-toolbar">
+                    <div class="transport-reports-toolbar__head">
+                        <div class="cards-toolbar__title mb-0">
+                            <h4 class="mb-1">Отчёты</h4>
+                            <p class="text-muted mb-0">Учёт смены по водителю и дате: часы, ночная погрузка, ручной подъём, маршрутный лист.</p>
                         </div>
-                        <div class="form-group mb-0" style="min-width: 200px;">
-                            <label for="filterDriverId" class="mb-1 d-block">Водитель</label>
+                        <button type="button" class="btn btn-primary flex-shrink-0" id="addReportBtn">
+                            <i class="mdi mdi-plus"></i> Добавить отчёт
+                        </button>
+                    </div>
+                </div>
+
+                <div class="glass-panel transport-reports-filters mt-3">
+                    <div class="row align-items-end">
+                        <div class="col-12 col-lg-7 mb-3 mb-lg-0">
+                            <label class="d-block mb-2 font-weight-medium" for="filterWeekPrev">Неделя (пн–вс)</label>
+                            <div class="transport-reports-week-nav d-flex align-items-center flex-wrap">
+                                <button type="button" class="btn btn-outline-secondary btn-icon-only" id="filterWeekPrev" title="Предыдущая неделя" aria-label="Предыдущая неделя">
+                                    <i class="mdi mdi-chevron-left"></i>
+                                </button>
+                                <span class="transport-reports-week-label px-2 px-md-3 text-center" id="filterWeekLabel"></span>
+                                <button type="button" class="btn btn-outline-secondary btn-icon-only" id="filterWeekNext" title="Следующая неделя" aria-label="Следующая неделя">
+                                    <i class="mdi mdi-chevron-right"></i>
+                                </button>
+                            </div>
+                            <input type="hidden" id="filterWeekMonday" value="" autocomplete="off">
+                            <p class="text-muted small mb-0 mt-2">По умолчанию показывается <strong>позапрошлая</strong> календарная неделя (не текущая и не прошлая).</p>
+                        </div>
+                        <div class="col-12 col-lg-5">
+                            <label class="d-block mb-2 font-weight-medium" for="filterDriverId">Водитель</label>
                             <select class="form-control" id="filterDriverId" name="filter_driver_id">
                                 <option value="">Все</option>
                             </select>
                         </div>
-                        <button type="button" class="btn btn-primary" id="addReportBtn">
-                            <i class="mdi mdi-plus"></i> Добавить отчёт
-                        </button>
                     </div>
                 </div>
 
@@ -50,7 +65,7 @@
                         </table>
                     </div>
                     <div class="text-center text-muted py-4 d-none" id="transportReportsEmptyState">
-                        Нет отчётов за выбранный период.
+                        Нет отчётов за выбранную неделю.
                     </div>
                 </div>
             </div>
@@ -84,11 +99,13 @@
                         <div class="form-row">
                             <div class="form-group col-md-6">
                                 <label for="reportWorkHours">Часы работы</label>
-                                <input type="number" class="form-control" id="reportWorkHours" name="work_hours" step="0.25" min="0" placeholder="0">
+                                <input type="time" class="form-control transport-report-duration-input" id="reportWorkHours" name="work_hours" step="60" autocomplete="off">
+                                <small class="form-text text-muted">Нажмите на поле — откроется выбор времени (как в будильнике). Свыше 24 ч поле станет текстовым <span class="text-monospace">чч:мм</span>.</small>
                             </div>
                             <div class="form-group col-md-6">
                                 <label for="reportExtraHours">Дополнительные часы</label>
-                                <input type="number" class="form-control" id="reportExtraHours" name="extra_work_hours" step="0.25" min="0" placeholder="0">
+                                <input type="time" class="form-control transport-report-duration-input" id="reportExtraHours" name="extra_work_hours" step="60" autocomplete="off">
+                                <small class="form-text text-muted">То же: нативный timepicker, шаг 1 минута.</small>
                             </div>
                         </div>
                         <div class="form-row align-items-end">

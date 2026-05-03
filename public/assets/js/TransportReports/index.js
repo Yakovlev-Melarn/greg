@@ -5,7 +5,8 @@ const $emptyState = $('#transportReportsEmptyState');
 const $alert = $('#transportReportsAlert');
 const $modal = $('#reportModal');
 const $form = $('#reportForm');
-const $filterMonth = $('#filterReportMonth');
+const $filterWeekMonday = $('#filterWeekMonday');
+const $filterWeekLabel = $('#filterWeekLabel');
 const $filterDriver = $('#filterDriverId');
 const $reportDriverId = $('#reportDriverId');
 const $reportNightLoading = $('#reportNightLoading');
@@ -15,7 +16,9 @@ const $reportManualAmount = $('#reportManualAmount');
 
 const state = {
     reports: [],
-    drivers: []
+    drivers: [],
+    /** @type {Date|null} Monday 00:00 local of selected ISO week */
+    selectedWeekMonday: null
 };
 
 function escapeHtml(value) {
@@ -51,6 +54,95 @@ function formatNum(value) {
     return String(n);
 }
 
+/**
+ * Десятичные часы (как в API) → строка "чч:мм" для отображения и ввода.
+ */
+function decimalHoursToHHMM(decimal) {
+    if (decimal == null || decimal === '') {
+        return '';
+    }
+    const n = Number(decimal);
+    if (Number.isNaN(n) || n < 0) {
+        return '';
+    }
+    const totalMinutes = Math.round(n * 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${pad2(h)}:${pad2(m)}`;
+}
+
+function formatHoursColumn(value) {
+    if (value == null || value === '') {
+        return '—';
+    }
+    const s = decimalHoursToHHMM(value);
+    return s || '—';
+}
+
+/**
+ * Парсинг «чч:мм» или значения от input[type=time] («чч:мм:сс») в десятичные часы. Пусто → null.
+ * @returns {{ ok: true, decimal: number|null }|{ ok: false, message: string }}
+ */
+function tryParseHHMM(value) {
+    const raw = value == null ? '' : String(value).trim();
+    if (raw === '') {
+        return { ok: true, decimal: null };
+    }
+    const segs = raw.split(':');
+    if (segs.length < 2) {
+        return {
+            ok: false,
+            message: 'Некорректное время. Укажите часы и минуты (например 01:30).',
+        };
+    }
+    const h = parseInt(segs[0], 10);
+    const m = parseInt(segs[1], 10);
+    if (Number.isNaN(h) || Number.isNaN(m)) {
+        return {
+            ok: false,
+            message: 'Некорректное время. Укажите часы и минуты (например 01:30).',
+        };
+    }
+    if (m >= 60) {
+        return { ok: false, message: 'Минуты не могут быть 60 и больше (используйте 01:00 вместо 00:60).' };
+    }
+    if (h < 0) {
+        return { ok: false, message: 'Часы не могут быть отрицательными.' };
+    }
+    return { ok: true, decimal: h + m / 60 };
+}
+
+/**
+ * Нативный timepicker (до 23:59) или текст для длительности &gt; 24 ч.
+ */
+function setDurationField($input, decimal) {
+    if (decimal == null || decimal === '') {
+        $input.removeClass('text-monospace');
+        $input.attr({ type: 'time', step: '60' });
+        $input.val('');
+        return;
+    }
+    const n = Number(decimal);
+    if (Number.isNaN(n) || n < 0) {
+        $input.removeClass('text-monospace');
+        $input.attr({ type: 'time', step: '60' });
+        $input.val('');
+        return;
+    }
+    const totalMinutes = Math.round(n * 60);
+    const fullHours = Math.floor(totalMinutes / 60);
+    const str = decimalHoursToHHMM(n);
+    if (fullHours > 23) {
+        $input.attr({ type: 'text' });
+        $input.addClass('text-monospace');
+        $input.val(str);
+    } else {
+        $input.removeClass('text-monospace');
+        $input.attr({ type: 'time', step: '60' });
+        $input.val(str);
+    }
+}
+
 function formatMoney(value) {
     if (value === null || value === undefined || value === '') {
         return '—';
@@ -60,6 +152,59 @@ function formatMoney(value) {
         return '—';
     }
     return n.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+/** Local calendar Monday–Sunday week containing `date` */
+function getMondayOfWeekContaining(date) {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+function toYmd(d) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** Позапрошлая неделя: на две недели раньше текущей (пн–вс) */
+function getDefaultWeekMonday() {
+    const thisWeekMon = getMondayOfWeekContaining(new Date());
+    const mon = new Date(thisWeekMon);
+    mon.setDate(mon.getDate() - 14);
+    mon.setHours(0, 0, 0, 0);
+    return mon;
+}
+
+function formatWeekRangeLabel(monday) {
+    const start = new Date(monday);
+    const end = new Date(monday);
+    end.setDate(end.getDate() + 6);
+    return `${pad2(start.getDate())}.${pad2(start.getMonth() + 1)}.${start.getFullYear()} — ${pad2(end.getDate())}.${pad2(end.getMonth() + 1)}.${end.getFullYear()}`;
+}
+
+function setSelectedWeekMonday(mondayDate) {
+    state.selectedWeekMonday = mondayDate;
+    const ymd = toYmd(mondayDate);
+    $filterWeekMonday.val(ymd);
+    $filterWeekLabel.text(formatWeekRangeLabel(mondayDate));
+}
+
+function shiftSelectedWeek(deltaWeeks) {
+    if (!state.selectedWeekMonday) {
+        return;
+    }
+    const d = new Date(state.selectedWeekMonday);
+    d.setDate(d.getDate() + deltaWeeks * 7);
+    setSelectedWeekMonday(d);
+    loadReports().fail(function (xhr) {
+        showAlert(handleAjaxError(xhr), 'error');
+    });
 }
 
 function renderDriverOptions($select, selectedId) {
@@ -110,8 +255,8 @@ function renderReports() {
             <tr data-report-id="${r.id}">
                 <td>${escapeHtml(r.report_date)}</td>
                 <td>${escapeHtml(r.driver_name || '—')}</td>
-                <td>${formatNum(r.work_hours)}</td>
-                <td>${formatNum(r.extra_work_hours)}</td>
+                <td class="text-monospace">${formatHoursColumn(r.work_hours)}</td>
+                <td class="text-monospace">${formatHoursColumn(r.extra_work_hours)}</td>
                 <td>${nightLabel}</td>
                 <td>${r.night_loading ? formatMoney(r.night_loading_amount) : '—'}</td>
                 <td>${manualLabel}</td>
@@ -126,18 +271,6 @@ function renderReports() {
     });
 }
 
-function parseMonthInput() {
-    const raw = $filterMonth.val();
-    if (!raw) {
-        return null;
-    }
-    const [y, m] = raw.split('-').map(Number);
-    if (!y || !m) {
-        return null;
-    }
-    return { year: y, month: m };
-}
-
 function loadDrivers() {
     return $.post('/api/drivers/list')
         .done(function (data) {
@@ -150,15 +283,14 @@ function loadDrivers() {
 }
 
 function loadReports() {
-    const ym = parseMonthInput();
-    if (!ym) {
+    const weekMonday = $filterWeekMonday.val();
+    if (!weekMonday) {
         state.reports = [];
         renderReports();
         return $.Deferred().resolve().promise();
     }
     const payload = {
-        year: ym.year,
-        month: ym.month,
+        week_monday: weekMonday,
         driver_id: $filterDriver.val() ? Number($filterDriver.val()) : null
     };
     return $.post({
@@ -177,6 +309,8 @@ function resetReportForm() {
     $('#reportModalTitle').text('Новый отчёт');
     const d = new Date();
     $('#reportDate').val(d.toISOString().slice(0, 10));
+    setDurationField($('#reportWorkHours'), null);
+    setDurationField($('#reportExtraHours'), null);
     renderDriverOptions($reportDriverId, '');
     $reportNightLoading.prop('checked', false);
     $reportManualLift.prop('checked', false);
@@ -198,18 +332,36 @@ $('#addReportBtn').on('click', function () {
     $modal.modal('show');
 });
 
+$('#filterWeekPrev').on('click', function () {
+    shiftSelectedWeek(-1);
+});
+
+$('#filterWeekNext').on('click', function () {
+    shiftSelectedWeek(1);
+});
+
 $reportNightLoading.on('change', syncNightFields);
 $reportManualLift.on('change', syncManualFields);
 
 $form.on('submit', function (e) {
     e.preventDefault();
+    const wh = tryParseHHMM($('#reportWorkHours').val());
+    const eh = tryParseHHMM($('#reportExtraHours').val());
+    if (!wh.ok) {
+        showAlert(wh.message, 'error');
+        return;
+    }
+    if (!eh.ok) {
+        showAlert(eh.message, 'error');
+        return;
+    }
     const id = $('#reportId').val();
     const endpoint = id ? '/api/driver-daily-reports/update' : '/api/driver-daily-reports/store';
     const payload = {
         driver_id: Number($reportDriverId.val()),
         report_date: $('#reportDate').val(),
-        work_hours: numOrNull($('#reportWorkHours')),
-        extra_work_hours: numOrNull($('#reportExtraHours')),
+        work_hours: wh.decimal,
+        extra_work_hours: eh.decimal,
         night_loading: $reportNightLoading.is(':checked'),
         night_loading_amount: $reportNightLoading.is(':checked') ? numOrNull($reportNightAmount) : null,
         manual_floor_lift: $reportManualLift.is(':checked'),
@@ -243,8 +395,8 @@ $(document).on('click', '.js-edit-report', function () {
     $('#reportModalTitle').text('Изменение отчёта');
     renderDriverOptions($reportDriverId, report.driver_id);
     $('#reportDate').val(report.report_date);
-    $('#reportWorkHours').val(report.work_hours != null ? report.work_hours : '');
-    $('#reportExtraHours').val(report.extra_work_hours != null ? report.extra_work_hours : '');
+    setDurationField($('#reportWorkHours'), report.work_hours);
+    setDurationField($('#reportExtraHours'), report.extra_work_hours);
     $reportNightLoading.prop('checked', !!report.night_loading);
     $reportNightAmount.val(
         report.night_loading && report.night_loading_amount != null
@@ -280,22 +432,14 @@ $(document).on('click', '.js-delete-report', function () {
         });
 });
 
-$filterMonth.on('change', function () {
-    loadReports().fail(function (xhr) {
-        showAlert(handleAjaxError(xhr), 'error');
-    });
-});
-
 $filterDriver.on('change', function () {
     loadReports().fail(function (xhr) {
         showAlert(handleAjaxError(xhr), 'error');
     });
 });
 
-(function initMonth() {
-    const d = new Date();
-    const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    $filterMonth.val(v);
+(function initWeek() {
+    setSelectedWeekMonday(getDefaultWeekMonday());
 })();
 
 $.when(loadDrivers()).done(function () {

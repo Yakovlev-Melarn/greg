@@ -46,8 +46,8 @@ class DriverDailyReportsApiTest extends TestCase
         );
     }
 
-    #[TestDox('Список отчётов за месяц и фильтр по водителю')]
-    public function test_list_by_month_and_driver_filter(): void
+    #[TestDox('Список отчётов за календарную неделю (пн–вс) и фильтр по водителю')]
+    public function test_list_by_week_and_driver_filter(): void
     {
         $d1 = Driver::create(['full_name' => 'А']);
         $d2 = Driver::create(['full_name' => 'Б']);
@@ -74,16 +74,14 @@ class DriverDailyReportsApiTest extends TestCase
             'manual_floor_lift' => false,
         ]);
 
-        $may = $this->postJson('/api/driver-daily-reports/list', [
-            'year' => 2026,
-            'month' => 5,
+        $week = $this->postJson('/api/driver-daily-reports/list', [
+            'week_monday' => '2026-04-27',
         ]);
-        $may->assertOk();
-        $this->assertCount(2, $may->json());
+        $week->assertOk();
+        $this->assertCount(2, $week->json());
 
         $filter = $this->postJson('/api/driver-daily-reports/list', [
-            'year' => 2026,
-            'month' => 5,
+            'week_monday' => '2026-04-27',
             'driver_id' => $d2->id,
         ]);
         $filter->assertOk();
@@ -148,5 +146,13 @@ class DriverDailyReportsApiTest extends TestCase
         ]);
 
         $dup->assertStatus(422);
+    }
+
+    #[TestDox('Список: week_monday должен быть понедельником')]
+    public function test_list_rejects_non_monday_week_start(): void
+    {
+        $this->postJson('/api/driver-daily-reports/list', [
+            'week_monday' => '2026-04-28',
+        ])->assertStatus(422);
     }
 }
