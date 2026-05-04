@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('sku-mapping:retry-empty --limit=200 --older-than=10')
     ->everyTenMinutes()
     ->withoutOverlapping();
+
+Schedule::command('stocks:dispatch-due')
+    ->everyMinute()
+    ->withoutOverlapping();

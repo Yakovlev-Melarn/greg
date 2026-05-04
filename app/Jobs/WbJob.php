@@ -9,8 +9,10 @@ use App\Libs\Helper;
 use App\Libs\WBContent;
 use App\Models\Cards as CardsModel;
 use App\Models\Sellers;
+use App\Models\SellerWarehouse;
 use App\Models\SkuMapping;
 use App\Models\SystemNotification;
+use App\Services\SimService;
 use App\Services\WildberriesService;
 use App\Services\Wb\CardSyncScheduler;
 use Illuminate\Bus\Queueable;
@@ -34,14 +36,17 @@ class WbJob implements ShouldQueue
     private const ACTION_UPDATE_PRICE = 'updatePrice';
     private const ACTION_GET_CARD_LIST = 'getCardList';
     private const ACTION_UPLOAD_PHOTOS = 'uploadPhotos';
+    private const ACTION_COLLECT_STOCKS = 'collectStocks';
     private const QUEUE_UPDATE_CARDS_PROCESS = 'updateCardsProcess';
     private const QUEUE_UPDATE_PRICE = 'updatePrice';
+    public const QUEUE_STOCKS = 'wbStocks';
     private const PRICE_UPDATE_DEFAULT_BATCH_SIZE = 1000;
     private const PRICE_UPDATE_DEFAULT_MAX_BATCHES_PER_RUN = 20;
     private const PRICE_MARGIN = 0.25;
     private const STOCK_CHUNK_SIZE = 100;
     private const STOCK_UPDATE_CHUNK_SIZE = 1000;
     private const STOCK_MAX_AMOUNT = 5;
+    private const SIMA_STOCK_CHUNK_SIZE = 50;
 
     public int $tries = 10;
     public int $timeout = 3600;
@@ -569,6 +574,92 @@ class WbJob implements ShouldQueue
     }
 
     /**
+     * Один склад: сбор остатков (WB или Sima по маршруту склада) и опциональная отправка в WB.
+     *
+     * @throws ConnectionException
+     */
+    private function collectStocks(array $params): void
+    {
+        $warehouseId = $params['warehouse_id'] ?? null;
+        if (! $warehouseId) {
+            return;
+        }
+
+        $warehouse = SellerWarehouse::with('seller')->find($warehouseId);
+        if (! $warehouse || ! $warehouse->seller) {
+            return;
+        }
+
+        if (! $warehouse->stock_collect_enabled) {
+            return;
+        }
+
+        $seller = $warehouse->seller;
+        $routeSupplier = $warehouse->supplier;
+        $cardSupplier = $routeSupplier === null ? 10 : (int) $routeSupplier;
+
+        try {
+            $cards = $seller->cards()
+                ->where('supplier', $cardSupplier)
+                ->where('supplier', '>', 0)
+                ->get();
+
+            $vendorToChrtMap = $this->buildVendorToChrtMap($cards);
+
+            $stockRows = $cardSupplier === 20
+                ? $this->fetchSimaStockRows($cards, $vendorToChrtMap)
+                : $this->fetchWbStockRows($cards, $vendorToChrtMap);
+
+            $sentCount = 0;
+            if ($warehouse->stock_send_to_wb && $stockRows !== []) {
+                $sentCount = $this->sendStockChunksToSingleWarehouse($seller, $warehouse, $stockRows);
+            }
+
+            $warehouse->forceFill([
+                'stock_last_run_at' => now(),
+                'stock_last_run_result' => [
+                    'status' => 'ok',
+                    'supplier' => $cardSupplier,
+                    'fetched' => count($stockRows),
+                    'sent' => $sentCount,
+                    'dry_run' => ! $warehouse->stock_send_to_wb,
+                ],
+            ])->save();
+        } catch (Throwable $e) {
+            Log::error('WbJob collectStocks failed', [
+                'warehouse_id' => $warehouseId,
+                'message' => $e->getMessage(),
+            ]);
+
+            SystemNotification::create([
+                'title' => 'Ошибка сбора остатков',
+                'message' => sprintf(
+                    'Склад #%s (%s): %s',
+                    $warehouseId,
+                    $seller->name,
+                    $e->getMessage()
+                ),
+                'level' => 'error',
+                'source' => 'wb_stock_collect',
+                'meta' => [
+                    'warehouse_id' => $warehouseId,
+                    'seller_id' => $seller->id,
+                ],
+            ]);
+
+            $warehouse->forceFill([
+                'stock_last_run_at' => now(),
+                'stock_last_run_result' => [
+                    'status' => 'error',
+                    'message' => $e->getMessage(),
+                ],
+            ])->save();
+        }
+    }
+
+    /**
+     * Ручной запуск (job:make updateWbStocks): все склады селлера с включённым сбором.
+     *
      * @throws ConnectionException
      */
     private function updateStocks(array $params): void
@@ -576,22 +667,18 @@ class WbJob implements ShouldQueue
         if (empty($params['seller_id'])) {
             return;
         }
-        $seller = Sellers::find($params['seller_id']);
-        if (!$seller) {
+
+        $seller = Sellers::with('warehouses')->find($params['seller_id']);
+        if (! $seller) {
             return;
         }
-        $cards = $this->getSellerCards($seller);
-        $vendorToChrtMap = $this->buildVendorToChrtMap($cards);
-        $vendorToSupplierMap = $this->buildVendorToSupplierMap($cards);
-        $stockData = $this->fetchStockQuantities($cards, $vendorToChrtMap, $vendorToSupplierMap);
-        $this->sendStockUpdates($seller, $stockData);
-    }
 
-    private function getSellerCards(Sellers $seller): Collection
-    {
-        return $seller->cards()
-            ->whereIn('supplier', [10, 20])
-            ->get();
+        foreach ($seller->warehouses as $warehouse) {
+            if (! $warehouse->stock_collect_enabled) {
+                continue;
+            }
+            $this->collectStocks(['warehouse_id' => $warehouse->id]);
+        }
     }
 
     private function buildVendorToChrtMap(Collection $cards): array
@@ -600,23 +687,11 @@ class WbJob implements ShouldQueue
     }
 
     /**
-     * @return array<string, int>
+     * Остатки через WB Content API (supplier 10 / дефолтный склад).
+     *
+     * @return list<array{chrtId: mixed, amount: int}>
      */
-    private function buildVendorToSupplierMap(Collection $cards): array
-    {
-        $map = [];
-        foreach ($cards as $card) {
-            $vc = (string) ($card->vendorCode ?? '');
-            if ($vc === '') {
-                continue;
-            }
-            $map[$vc] = (int) $card->supplier;
-        }
-
-        return $map;
-    }
-
-    private function fetchStockQuantities(Collection $cards, array $vendorToChrtMap, array $vendorToSupplierMap): array
+    private function fetchWbStockRows(Collection $cards, array $vendorToChrtMap): array
     {
         $vendorCodes = $cards->pluck('vendorCode')->toArray();
         $chunks = array_chunk($vendorCodes, self::STOCK_CHUNK_SIZE);
@@ -627,14 +702,14 @@ class WbJob implements ShouldQueue
             echo "Осталось " . ($total--) . " пачек\n";
             $vendorCodeString = implode(';', $chunk);
             $stocks = WBContent::getAmounts($vendorCodeString);
+            if ($stocks === false) {
+                $stocks = [];
+            }
             foreach ($stocks as $vendorCode => $quantity) {
                 if (isset($vendorToChrtMap[$vendorCode])) {
-                    $chrtID = $vendorToChrtMap[$vendorCode];
-                    $supplier = $vendorToSupplierMap[$vendorCode] ?? 10;
                     $result[] = [
-                        'chrtId' => $chrtID,
+                        'chrtId' => $vendorToChrtMap[$vendorCode],
                         'amount' => $quantity > self::STOCK_MAX_AMOUNT ? self::STOCK_MAX_AMOUNT : 0,
-                        'supplier' => $supplier,
                     ];
                 }
             }
@@ -644,87 +719,45 @@ class WbJob implements ShouldQueue
     }
 
     /**
+     * Остатки через Sima-Land API (supplier 20).
+     *
+     * @return list<array{chrtId: mixed, amount: int}>
+     */
+    private function fetchSimaStockRows(Collection $cards, array $vendorToChrtMap): array
+    {
+        $vendorCodes = $cards->pluck('vendorCode')->filter()->unique()->values()->all();
+        $amounts = SimService::getAmountsBulk($vendorCodes, self::SIMA_STOCK_CHUNK_SIZE);
+        $result = [];
+        foreach ($vendorCodes as $vc) {
+            if (! isset($vendorToChrtMap[$vc])) {
+                continue;
+            }
+            $qty = (int) ($amounts[(string) $vc] ?? $amounts[$vc] ?? 0);
+            $result[] = [
+                'chrtId' => $vendorToChrtMap[$vc],
+                'amount' => min(self::STOCK_MAX_AMOUNT, max(0, $qty)),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  list<array{chrtId: mixed, amount: int}>  $rows
+     *
      * @throws ConnectionException
      */
-    private function sendStockUpdates(Sellers $seller, array $stockData): void
+    private function sendStockChunksToSingleWarehouse(Sellers $seller, SellerWarehouse $warehouse, array $rows): int
     {
-        $seller->loadMissing('warehouses');
-
-        $defaultWarehouse = $seller->warehouses->firstWhere('supplier', null);
-        $supplier20Warehouse = $seller->warehouses->firstWhere('supplier', 20);
-
-        $forSupplier20 = [];
-        $forDefault = [];
-
-        foreach ($stockData as $row) {
-            $supplier = (int) ($row['supplier'] ?? 10);
-            $payload = [
-                'chrtId' => $row['chrtId'],
-                'amount' => $row['amount'],
-            ];
-            if ($supplier === 20) {
-                $forSupplier20[] = $payload;
-            } else {
-                $forDefault[] = $payload;
-            }
-        }
-
         $service = new WildberriesService($seller->wb_api_key, []);
-
-        $routes = [
-            [
-                'chunks' => $forSupplier20,
-                'warehouse' => $supplier20Warehouse,
-                'label' => 'supplier=20',
-                'route_key' => 'supplier_20',
-            ],
-            [
-                'chunks' => $forDefault,
-                'warehouse' => $defaultWarehouse,
-                'label' => 'по умолчанию (supplier≠20)',
-                'route_key' => 'default',
-            ],
-        ];
-
-        foreach ($routes as $route) {
-            if ($route['chunks'] === []) {
-                continue;
-            }
-
-            $warehouse = $route['warehouse'];
-            if (!$warehouse) {
-                Log::warning('WbJob: no warehouse configured for stock route', [
-                    'seller_id' => $seller->id,
-                    'route' => $route['route_key'],
-                    'label' => $route['label'],
-                ]);
-
-                SystemNotification::create([
-                    'title' => 'Остатки WB: склад не настроен',
-                    'message' => sprintf(
-                        'Для магазина «%s» не задан склад для маршрута «%s». Обновление остатков для этой группы пропущено.',
-                        $seller->name,
-                        $route['label']
-                    ),
-                    'level' => 'warning',
-                    'source' => 'wb_stock_sync',
-                    'meta' => [
-                        'seller_id' => $seller->id,
-                        'route' => $route['route_key'],
-                    ],
-                ]);
-
-                continue;
-            }
-
-            $chunks = array_chunk($route['chunks'], self::STOCK_UPDATE_CHUNK_SIZE);
-            $total = count($chunks);
-            echo "Очередь на отправку ({$route['label']}) из " . $total . " пачек\n";
-            foreach ($chunks as $chunk) {
-                $service->updateStocks((int) $warehouse->wb_warehouse_id, $chunk);
-                echo "Осталось " . ($total--) . " пачек\n";
-            }
+        $chunks = array_chunk($rows, self::STOCK_UPDATE_CHUNK_SIZE);
+        $sent = 0;
+        foreach ($chunks as $chunk) {
+            $service->updateStocks((int) $warehouse->wb_warehouse_id, $chunk);
+            $sent += count($chunk);
         }
+
+        return $sent;
     }
 
     /**

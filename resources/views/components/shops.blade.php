@@ -38,6 +38,7 @@
                                 <th>WB склад ID</th>
                                 <th>Название</th>
                                 <th>Маршрут</th>
+                                <th>Остатки</th>
                                 <th class="text-right"></th>
                             </tr>
                             </thead>
@@ -49,19 +50,34 @@
                                         <td><%- w.name ? w.name : '—' %></td>
                                         <td>
                                             <% if (w.supplier == 20) { %>
-                                                supplier = 20
+                                                Екатеринбург
                                             <% } else { %>
-                                                По умолчанию
+                                                Санкт-Петербург
+                                            <% } %>
+                                        </td>
+                                        <td>
+                                            <span class="badge <%- w.stock_collect_enabled ? 'badge-success' : 'badge-secondary' %> mr-1">
+                                                Сбор: <%- w.stock_collect_enabled ? 'on' : 'off' %>
+                                            </span>
+                                            <span class="badge <%- w.stock_send_to_wb ? 'badge-primary' : 'badge-secondary' %> mr-1">
+                                                WB: <%- w.stock_send_to_wb ? 'on' : 'off' %>
+                                            </span>
+                                            <span class="badge badge-light mr-1">
+                                                <%- (w.stock_frequency_minutes || 30) %> мин
+                                            </span>
+                                            <% if (w.stock_last_run_at) { %>
+                                                <span class="badge badge-light" title="<%- w.stock_last_run_at %>">
+                                                    <%= String(w.stock_last_run_at).replace('T', ' ').substring(0, 16) %>
+                                                </span>
+                                            <% } else { %>
+                                                <span class="badge badge-light">ещё не запускалось</span>
                                             <% } %>
                                         </td>
                                         <td class="text-right text-nowrap">
                                             <button type="button"
                                                     class="btn btn-link btn-sm p-0 mr-2 warehouseEditBtn"
                                                     data-wh-id="<%- w.id %>"
-                                                    data-seller-id="<%- s.id %>"
-                                                    data-wb="<%- w.wb_warehouse_id %>"
-                                                    data-name="<%- w.name ? w.name : '' %>"
-                                                    data-supplier="<%- w.supplier != null ? w.supplier : '' %>">
+                                                    data-seller-id="<%- s.id %>">
                                                 Изменить
                                             </button>
                                             <button type="button"
@@ -74,7 +90,7 @@
                                 <% }); %>
                             <% } else { %>
                                 <tr>
-                                    <td colspan="4" class="text-muted">Склады не добавлены</td>
+                                    <td colspan="5" class="text-muted">Склады не добавлены</td>
                                 </tr>
                             <% } %>
                             </tbody>
@@ -119,9 +135,25 @@
         <div class="mb-3">
             <label class="form-label" for="whFormSupplier">Маршрут остатков</label>
             <select class="form-control" name="supplier" id="whFormSupplier">
-                <option value="">По умолчанию (все кроме supplier = 20)</option>
-                <option value="20">Только supplier = 20</option>
+                <option value="">Санкт-Петербург</option>
+                <option value="20">Екатеринбург</option>
             </select>
+        </div>
+        <hr>
+        <h6 class="mb-2">Остатки</h6>
+        <div class="mb-2 form-check">
+            <input type="checkbox" class="form-check-input" id="whFormStockCollect" name="stock_collect_enabled">
+            <label class="form-check-label" for="whFormStockCollect">Собирать остатки</label>
+            <small class="form-text text-muted mb-0">Фоновая задача опрашивает источник (WB или Sima-Land) по расписанию.</small>
+        </div>
+        <div class="mb-2 form-check">
+            <input type="checkbox" class="form-check-input" id="whFormStockSend" name="stock_send_to_wb" disabled>
+            <label class="form-check-label" for="whFormStockSend">Отправлять обновления в WB</label>
+            <small class="form-text text-muted mb-0">Без галочки — dry-run: остатки только собираются, PUT в WB не выполняется.</small>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="whFormStockFreq">Частота обновления (минут)</label>
+            <input type="number" class="form-control" name="stock_frequency_minutes" id="whFormStockFreq" min="5" max="1440" step="1" value="30">
         </div>
     </form>
     <div class="d-flex justify-content-between flex-wrap gap-2">

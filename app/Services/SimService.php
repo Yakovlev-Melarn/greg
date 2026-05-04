@@ -17,6 +17,44 @@ class SimService
     }
 
     /**
+     * Bulk-запрос остатков по списку origSku.
+     *
+     * @param  array<int|string>  $origSkus
+     * @return array<string, int> map origSku → amount (0 или 5, см. calculateStockQuantity)
+     */
+    public static function getAmountsBulk(array $origSkus, int $chunkSize = 50): array
+    {
+        $skus = array_values(array_unique(array_filter(
+            array_map(static fn ($s) => trim((string) $s), $origSkus),
+            static fn (string $s): bool => $s !== '',
+        )));
+
+        if ($skus === []) {
+            return [];
+        }
+
+        $result = [];
+        foreach (array_chunk($skus, max(1, $chunkSize)) as $chunk) {
+            $sid = implode(',', $chunk);
+            $response = Http::acceptJson()
+                ->timeout(30)
+                ->get('https://www.sima-land.ru/api/v3/item/', [
+                    'sid' => $sid,
+                    'expand' => 'stocks',
+                ])->json();
+
+            foreach (($response['items'] ?? []) as $item) {
+                if (! isset($item['sid'])) {
+                    continue;
+                }
+                $result[(string) $item['sid']] = self::calculateStockQuantity($item);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * @throws Exception
      */
     public static function validateResponse(array $response): bool

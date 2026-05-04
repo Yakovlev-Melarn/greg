@@ -21,12 +21,22 @@ class SellerWarehouse extends Model
         'wb_warehouse_id',
         'name',
         'supplier',
+        'stock_collect_enabled',
+        'stock_send_to_wb',
+        'stock_frequency_minutes',
+        'stock_last_run_at',
+        'stock_last_run_result',
     ];
 
     protected $casts = [
         'seller_id' => 'integer',
         'wb_warehouse_id' => 'integer',
         'supplier' => 'integer',
+        'stock_collect_enabled' => 'boolean',
+        'stock_send_to_wb' => 'boolean',
+        'stock_frequency_minutes' => 'integer',
+        'stock_last_run_at' => 'datetime',
+        'stock_last_run_result' => 'array',
     ];
 
     public function seller(): BelongsTo

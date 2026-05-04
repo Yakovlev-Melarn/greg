@@ -38,6 +38,14 @@ function showTemplate(template, window) {
     window.content(tmpl);
 }
 
+function syncWarehouseStockFormControls() {
+    var collect = $('#whFormStockCollect').is(':checked');
+    $('#whFormStockSend').prop('disabled', !collect);
+    if (!collect) {
+        $('#whFormStockSend').prop('checked', false);
+    }
+}
+
 $(document).on('click', "#addSupplierModal", function () {
     let modal = new Modal({
         title: 'Добавить поставщика'
@@ -161,6 +169,10 @@ $(document).on('click', '.warehouseAddBtn', function () {
     $('#whFormWbId').val('');
     $('#whFormName').val('');
     $('#whFormSupplier').val('');
+    $('#whFormStockCollect').prop('checked', false);
+    $('#whFormStockSend').prop('checked', false);
+    $('#whFormStockFreq').val(30);
+    syncWarehouseStockFormControls();
 });
 
 $(document).on('click', '.warehouseEditBtn', function () {
@@ -187,7 +199,13 @@ $(document).on('click', '.warehouseEditBtn', function () {
     $('#whFormWbId').val(wh.wb_warehouse_id);
     $('#whFormName').val(wh.name || '');
     $('#whFormSupplier').val(wh.supplier != null ? String(wh.supplier) : '');
+    $('#whFormStockCollect').prop('checked', !!wh.stock_collect_enabled);
+    $('#whFormStockSend').prop('checked', !!wh.stock_send_to_wb);
+    $('#whFormStockFreq').val(wh.stock_frequency_minutes != null ? wh.stock_frequency_minutes : 30);
+    syncWarehouseStockFormControls();
 });
+
+$(document).on('change', '#whFormStockCollect', syncWarehouseStockFormControls);
 
 $(document).on('click', '#whFormCancel', function () {
     if (!shopsModalRef) {
@@ -208,6 +226,9 @@ $(document).on('submit', '#shopWarehouseForm', function (e) {
         wb_warehouse_id: wbId,
         name: nameVal === '' ? null : nameVal,
         supplier: supVal === '' ? null : parseInt(supVal, 10),
+        stock_collect_enabled: $('#whFormStockCollect').is(':checked'),
+        stock_send_to_wb: $('#whFormStockSend').is(':checked'),
+        stock_frequency_minutes: parseInt($('#whFormStockFreq').val(), 10) || 30,
     };
     if (rowId) {
         payload.id = parseInt(rowId, 10);
