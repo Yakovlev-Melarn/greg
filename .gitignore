@@ -22,3 +22,13 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# OS and editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# PHP tooling
+.php-cs-fixer.cache
