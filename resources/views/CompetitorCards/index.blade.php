@@ -21,16 +21,22 @@
 
                     <div class="mb-3">
                         <label for="quantity" class="form-label">Количество товаров</label>
-                        <select class="form-select" id="quantity" required>
+                        <select class="form-select" id="quantity" required
+                            @if(($quantityRemaining ?? 0) <= 0) disabled @endif
+                        >
                             <option value="" disabled selected>Выберите количество</option>
-                            <option value="1">1</option>
-                            <option value="10">10</option>
-                            <option value="100">100</option>
-                            <option value="1000">1 000</option>
+                            @foreach($quantityOptions as $q)
+                                <option value="{{ $q }}">{{ number_format($q, 0, ',', ' ') }}</option>
+                            @endforeach
                         </select>
                         <div class="invalid-feedback">
                             Пожалуйста, выберите количество.
                         </div>
+                        <small class="text-muted d-block mt-1">
+                            Лимит до {{ number_format($dailyCardLimit ?? 1000, 0, ',', ' ') }} карточек в сутки на магазин.
+                            Сегодня создано: {{ $cardsCreatedToday ?? 0 }}.
+                            Доступно ещё: <strong>{{ $quantityRemaining ?? ($dailyCardLimit ?? 1000) }}</strong>.
+                        </small>
                     </div>
 
                     <div class="row">
@@ -85,8 +91,16 @@
                         </label>
                     </div>
 
+                    @if(($quantityRemaining ?? 0) <= 0)
+                        <div class="alert alert-warning mb-3">
+                            Достигнут дневной лимит карточек для выбранного магазина. Выберите другой магазин в меню или попробуйте завтра.
+                        </div>
+                    @endif
+
                     <div class="d-flex gap-2 ui-form-actions">
-                        <button type="submit" class="btn btn-primary flex-grow-1 ui-action-btn">
+                        <button type="submit" class="btn btn-primary flex-grow-1 ui-action-btn"
+                            @if(($quantityRemaining ?? 0) <= 0) disabled @endif
+                        >
                             Запустить клонирование
                         </button>
                         <button type="reset" class="btn btn-outline-secondary flex-grow-1">

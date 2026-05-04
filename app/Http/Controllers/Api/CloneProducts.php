@@ -3,17 +3,32 @@
 namespace App\Http\Controllers\Api;
 
 use App\Jobs\CloneProductsJob;
+use App\Models\Cards;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Storage;
 
 class CloneProducts
 {
+    private const DAILY_CARD_LIMIT = 1000;
+
     public function start(Request $request): JsonResponse
     {
+        $sellerId = $request->input('seller_id') ?? Session::get('seller');
+        $cardsToday = 0;
+        if ($sellerId) {
+            $cardsToday = Cards::query()
+                ->where('sellerID', $sellerId)
+                ->whereDate('created_at', now())
+                ->count();
+        }
+
+        $maxQuantity = max(0, self::DAILY_CARD_LIMIT - $cardsToday);
+
         $validated = $request->validate([
             'supplier_id' => 'required|integer',
-            'quantity' => 'required|integer|min:1|max:1000',
+            'quantity' => 'required|integer|min:1|max:'.$maxQuantity,
             'min_price' => 'nullable|numeric|min:0',
             'max_price' => 'nullable|numeric|min:0',
             'batch_size' => 'nullable|integer|min:1|max:100',
