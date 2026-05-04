@@ -9,7 +9,7 @@
                     <div class="transport-reports-toolbar__head">
                         <div class="cards-toolbar__title mb-0">
                             <h4 class="mb-1">Отчёты</h4>
-                            <p class="text-muted mb-0">Учёт смены по водителю и дате: часы, ночная погрузка, ручной подъём, маршрутный лист.</p>
+                            <p class="text-muted mb-0">Учёт смены по водителю</p>
                         </div>
                         <button type="button" class="btn btn-primary flex-shrink-0" id="addReportBtn">
                             <i class="mdi mdi-plus"></i> Добавить отчёт
@@ -51,14 +51,7 @@
                             <tr>
                                 <th>Дата</th>
                                 <th>Водитель</th>
-                                <th>Часы</th>
-                                <th>Доп. часы</th>
-                                <th>Ноч. погрузка</th>
-                                <th>Сумма (ночь)</th>
-                                <th>Подъём</th>
-                                <th>Сумма (подъём)</th>
                                 <th>Маршрут, ₽</th>
-                                <th></th>
                             </tr>
                             </thead>
                             <tbody id="transportReportsTableBody"></tbody>
@@ -100,12 +93,12 @@
                             <div class="form-group col-md-6">
                                 <label for="reportWorkHours">Часы работы</label>
                                 <input type="time" class="form-control transport-report-duration-input" id="reportWorkHours" name="work_hours" step="60" autocomplete="off">
-                                <small class="form-text text-muted">Нажмите на поле — откроется выбор времени (как в будильнике). Свыше 24 ч поле станет текстовым <span class="text-monospace">чч:мм</span>.</small>
+                                <small class="form-text text-muted">Нажмите на поле — откроется выбор времени<span class="text-monospace">чч:мм</span>.</small>
                             </div>
                             <div class="form-group col-md-6">
                                 <label for="reportExtraHours">Дополнительные часы</label>
                                 <input type="time" class="form-control transport-report-duration-input" id="reportExtraHours" name="extra_work_hours" step="60" autocomplete="off">
-                                <small class="form-text text-muted">То же: нативный timepicker, шаг 1 минута.</small>
+                                <small class="form-text text-muted">Нажмите на поле — откроется выбор времени</small>
                             </div>
                         </div>
                         <div class="form-row align-items-end">
@@ -137,9 +130,12 @@
                             <input type="number" class="form-control" id="reportRouteTotal" name="route_sheet_total" step="0.01" min="0" placeholder="0">
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-light" data-dismiss="modal">Отмена</button>
-                        <button type="submit" class="btn btn-primary">Сохранить</button>
+                    <div class="modal-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-danger d-none" id="deleteReportBtn">Удалить</button>
+                        <div class="d-flex flex-wrap gap-2 ml-auto">
+                            <button type="button" class="btn btn-light" data-dismiss="modal">Отмена</button>
+                            <button type="submit" class="btn btn-primary">Сохранить</button>
+                        </div>
                     </div>
                 </form>
             </div>

@@ -13,6 +13,7 @@ const $reportNightLoading = $('#reportNightLoading');
 const $reportNightAmount = $('#reportNightAmount');
 const $reportManualLift = $('#reportManualLift');
 const $reportManualAmount = $('#reportManualAmount');
+const $deleteReportBtn = $('#deleteReportBtn');
 
 const state = {
     reports: [],
@@ -243,29 +244,47 @@ function syncManualFields() {
     }
 }
 
+function openReportModal(report) {
+    $('#reportId').val(report.id);
+    $('#reportModalTitle').text('Отчёт за ' + report.report_date);
+    renderDriverOptions($reportDriverId, report.driver_id);
+    $('#reportDate').val(report.report_date);
+    setDurationField($('#reportWorkHours'), report.work_hours);
+    setDurationField($('#reportExtraHours'), report.extra_work_hours);
+    $reportNightLoading.prop('checked', !!report.night_loading);
+    $reportNightAmount.val(
+        report.night_loading && report.night_loading_amount != null
+            ? report.night_loading_amount
+            : (report.night_loading ? DEFAULT_NIGHT_AMOUNT : '')
+    );
+    $reportManualLift.prop('checked', !!report.manual_floor_lift);
+    $reportManualAmount.val(
+        report.manual_floor_lift && report.manual_floor_lift_amount != null
+            ? report.manual_floor_lift_amount
+            : ''
+    );
+    $('#reportRouteTotal').val(report.route_sheet_total != null ? report.route_sheet_total : '');
+    syncNightFields();
+    syncManualFields();
+    $deleteReportBtn.removeClass('d-none');
+    $modal.modal('show');
+}
+
 function renderReports() {
     $tableBody.empty();
     const hasRows = state.reports.length > 0;
     $emptyState.toggleClass('d-none', hasRows);
 
     state.reports.forEach(function (r) {
-        const nightLabel = r.night_loading ? 'Да' : 'Нет';
-        const manualLabel = r.manual_floor_lift ? 'Да' : 'Нет';
         $tableBody.append(`
             <tr data-report-id="${r.id}">
-                <td>${escapeHtml(r.report_date)}</td>
-                <td>${escapeHtml(r.driver_name || '—')}</td>
-                <td class="text-monospace">${formatHoursColumn(r.work_hours)}</td>
-                <td class="text-monospace">${formatHoursColumn(r.extra_work_hours)}</td>
-                <td>${nightLabel}</td>
-                <td>${r.night_loading ? formatMoney(r.night_loading_amount) : '—'}</td>
-                <td>${manualLabel}</td>
-                <td>${r.manual_floor_lift ? formatMoney(r.manual_floor_lift_amount) : '—'}</td>
-                <td>${formatMoney(r.route_sheet_total)}</td>
-                <td class="text-right">
-                    <button type="button" class="btn btn-sm btn-outline-primary js-edit-report" data-id="${r.id}">Изменить</button>
-                    <button type="button" class="btn btn-sm btn-outline-danger js-delete-report ml-1" data-id="${r.id}">Удалить</button>
+                <td>
+                    <button type="button" class="btn btn-link p-0 text-left js-open-report" data-id="${r.id}">
+                        ${escapeHtml(r.report_date)}
+                    </button>
                 </td>
+                <td>${escapeHtml(r.driver_name || '—')}</td>
+                <td>${formatMoney(r.route_sheet_total)}</td>
             </tr>
         `);
     });
@@ -316,6 +335,7 @@ function resetReportForm() {
     $reportManualLift.prop('checked', false);
     syncNightFields();
     syncManualFields();
+    $deleteReportBtn.addClass('d-none');
 }
 
 function numOrNull($input) {
@@ -384,45 +404,27 @@ $form.on('submit', function (e) {
         });
 });
 
-$(document).on('click', '.js-edit-report', function () {
+$(document).on('click', '.js-open-report', function () {
     const reportId = Number($(this).data('id'));
     const report = state.reports.find(function (r) { return r.id === reportId; });
     if (!report) {
         return;
     }
-
-    $('#reportId').val(report.id);
-    $('#reportModalTitle').text('Изменение отчёта');
-    renderDriverOptions($reportDriverId, report.driver_id);
-    $('#reportDate').val(report.report_date);
-    setDurationField($('#reportWorkHours'), report.work_hours);
-    setDurationField($('#reportExtraHours'), report.extra_work_hours);
-    $reportNightLoading.prop('checked', !!report.night_loading);
-    $reportNightAmount.val(
-        report.night_loading && report.night_loading_amount != null
-            ? report.night_loading_amount
-            : (report.night_loading ? DEFAULT_NIGHT_AMOUNT : '')
-    );
-    $reportManualLift.prop('checked', !!report.manual_floor_lift);
-    $reportManualAmount.val(
-        report.manual_floor_lift && report.manual_floor_lift_amount != null
-            ? report.manual_floor_lift_amount
-            : ''
-    );
-    $('#reportRouteTotal').val(report.route_sheet_total != null ? report.route_sheet_total : '');
-    syncNightFields();
-    syncManualFields();
-    $modal.modal('show');
+    openReportModal(report);
 });
 
-$(document).on('click', '.js-delete-report', function () {
-    const reportId = Number($(this).data('id'));
+$deleteReportBtn.on('click', function () {
+    const reportId = Number($('#reportId').val());
+    if (!reportId) {
+        return;
+    }
     if (!confirm('Удалить этот отчёт?')) {
         return;
     }
 
     $.post('/api/driver-daily-reports/destroy', { id: reportId })
         .done(function () {
+            $modal.modal('hide');
             loadReports().done(function () {
                 showAlert('Отчёт удалён');
             });
