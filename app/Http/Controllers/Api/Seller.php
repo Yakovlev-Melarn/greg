@@ -6,6 +6,7 @@ use App\Models\Sellers;
 use App\Models\SellerWarehouse;
 use App\Models\SellerWarehouseStockHistory;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -231,9 +232,10 @@ class Seller
             'limit' => 'sometimes|integer|min:1|max:500',
         ]);
         $limit = (int) ($validated['limit'] ?? 100);
+        $warehouseId = (int) $validated['warehouse_id'];
 
         $items = SellerWarehouseStockHistory::query()
-            ->where('seller_warehouse_id', $validated['warehouse_id'])
+            ->where('seller_warehouse_id', $warehouseId)
             ->orderByDesc('collected_at')
             ->orderByDesc('id')
             ->limit($limit)
@@ -252,7 +254,37 @@ class Seller
             ->values()
             ->all();
 
-        return response()->json(['items' => $items]);
+        $runsSummary = SellerWarehouseStockHistory::query()
+            ->where('seller_warehouse_id', $warehouseId)
+            ->selectRaw(
+                'run_key, max(collected_at) as collected_at, count(*) as positions, '.
+                'sum(case when is_positive then 1 else 0 end) as positive_count, '.
+                'sum(case when wb_eligible then 1 else 0 end) as wb_eligible_count, '.
+                'sum(case when included_in_wb_batch then 1 else 0 end) as wb_sent_count'
+            )
+            ->groupBy('run_key')
+            ->orderByDesc('collected_at')
+            ->limit(15)
+            ->get()
+            ->map(static function ($row): array {
+                return [
+                    'run_key' => (string) $row->run_key,
+                    'collected_at' => $row->collected_at !== null
+                        ? Carbon::parse($row->collected_at)->toIso8601String()
+                        : null,
+                    'positions' => (int) $row->positions,
+                    'positive' => (int) $row->positive_count,
+                    'wb_eligible' => (int) $row->wb_eligible_count,
+                    'wb_sent' => (int) $row->wb_sent_count,
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json([
+            'items' => $items,
+            'runs_summary' => $runsSummary,
+        ]);
     }
 
     /**

@@ -155,6 +155,7 @@
                 <i class="mdi mdi-arrow-left mr-1"></i>Назад к списку
             </button>
         </div>
+        <div id="whStockHistorySummary" class="shops-history-summary mb-3" style="display:none;"></div>
         <div class="table-responsive shops-table-wrap shops-history-scroll">
             <table class="table table-sm mb-0 shops-table">
                 <thead>

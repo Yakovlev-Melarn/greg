@@ -236,6 +236,49 @@ function ajaxDestroyWarehouse(id) {
         .fail(shopsAjaxFail);
 }
 
+function renderWhStockHistorySummary(runs) {
+    var $el = $('#whStockHistorySummary');
+    if (!$el.length) {
+        return;
+    }
+    if (!runs || !runs.length) {
+        $el.hide().empty();
+        return;
+    }
+    var html =
+        '<div class="shops-history-summary-title text-muted text-uppercase small font-weight-bold mb-2">Сводка по обходам (последние ' +
+        runs.length +
+        ')</div>';
+    runs.forEach(function (r, idx) {
+        var ts = r.collected_at
+            ? String(r.collected_at).replace('T', ' ').substring(0, 19)
+            : '—';
+        var badge = idx === 0 ? '<span class="badge badge-primary align-middle ml-1">последний</span>' : '';
+        html += '<div class="shops-history-run mb-2 pb-2' + (idx < runs.length - 1 ? ' shops-history-run--sep' : '') + '">';
+        html +=
+            '<div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-1">' +
+            '<span class="text-monospace small">' +
+            _.escape(ts) +
+            '</span>' +
+            badge +
+            '</div>';
+        html +=
+            '<div class="small text-muted shops-history-run-stats">' +
+            'позиций: <strong class="text-body">' +
+            r.positions +
+            '</strong> · с остатком: <strong class="text-body">' +
+            r.positive +
+            '</strong> · кандидатов в WB: <strong class="text-body">' +
+            r.wb_eligible +
+            '</strong> · отправлено в WB: <strong class="text-body">' +
+            r.wb_sent +
+            '</strong>' +
+            '</div>';
+        html += '</div>';
+    });
+    $el.html(html).show();
+}
+
 function ajaxWarehouseStockHistory(warehouseId) {
     ajaxPostJson('/api/sellers/warehouseStockHistory', {
         warehouse_id: parseInt(warehouseId, 10),
@@ -243,11 +286,14 @@ function ajaxWarehouseStockHistory(warehouseId) {
     })
         .done(function (res) {
             var items = res.items || [];
+            var runs = res.runs_summary || [];
             var $body = $('#whStockHistoryBody');
             var $empty = $('#whStockHistoryEmpty');
+            var $sum = $('#whStockHistorySummary');
             if (!$body.length) {
                 return;
             }
+            renderWhStockHistorySummary(runs);
             $body.empty();
             if (!items.length) {
                 $empty.show();

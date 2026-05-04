@@ -19,6 +19,7 @@ use App\Services\WarehouseStockWbEligibility;
 use App\Services\WildberriesService;
 use App\Services\Wb\CardSyncScheduler;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -33,9 +34,14 @@ use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
-class WbJob implements ShouldQueue
+class WbJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /**
+     * Время уникального замка (сек.): сбор Sima — сотни HTTP-запросов, дольше минутного интервала планировщика.
+     */
+    public int $uniqueFor = 7200;
 
     private const ACTION_UPDATE_PRICE = 'updatePrice';
     private const ACTION_GET_CARD_LIST = 'getCardList';
@@ -52,6 +58,18 @@ class WbJob implements ShouldQueue
     private const STOCK_MAX_AMOUNT = 5;
     private const SIMA_STOCK_CHUNK_SIZE = 50;
 
+    /**
+     * SQLite ограничивает число bound-переменных в одном запросе (часто 999).
+     * Чанки для whereIn / upsert / insert при сохранении остатков по складу.
+     */
+    private const STOCK_SNAPSHOT_WHEREIN_CHUNK_SIZE = 200;
+
+    private const STOCK_SNAPSHOT_UPSERT_CHUNK_SIZE = 50;
+
+    private const STOCK_HISTORY_INSERT_CHUNK_SIZE = 70;
+
+    private const STOCK_MARK_SENT_WHEREIN_CHUNK_SIZE = 200;
+
     public int $tries = 10;
     public int $timeout = 3600;
 
@@ -63,6 +81,18 @@ class WbJob implements ShouldQueue
     public function handle(): void
     {
         self::{$this->action}($this->params);
+    }
+
+    /**
+     * Один активный сбор остатков на склад — иначе cron каждую минуту ставит дубликаты, пока Sima не ответит.
+     */
+    public function uniqueId(): string
+    {
+        if ($this->action === self::ACTION_COLLECT_STOCKS && isset($this->params['warehouse_id'])) {
+            return 'wb-collect-stocks-wh-'.(int) $this->params['warehouse_id'];
+        }
+
+        return 'wb-job-'.$this->action.'-'.sha1((string) json_encode($this->params));
     }
 
     public function tries(): int
@@ -603,6 +633,16 @@ class WbJob implements ShouldQueue
         $cardSupplier = $routeSupplier === null ? 10 : (int) $routeSupplier;
 
         try {
+            // Сразу обновляем время последнего запуска, иначе `stocks:dispatch-due` (каждую минуту)
+            // снова поставит сбор, пока Sima обрабатывает тысячи SKU (долгий цикл запросов).
+            $warehouse->forceFill([
+                'stock_last_run_at' => now(),
+                'stock_last_run_result' => [
+                    'status' => 'running',
+                    'supplier' => $cardSupplier,
+                ],
+            ])->save();
+
             $cards = $seller->cards()
                 ->where('supplier', $cardSupplier)
                 ->where('supplier', '>', 0)
@@ -799,11 +839,16 @@ class WbJob implements ShouldQueue
             $stockRows,
         )));
 
-        $prevByChrt = SellerWarehouseStockSnapshot::query()
-            ->where('seller_warehouse_id', $warehouse->id)
-            ->whereIn('chrt_id', $chrtIds)
-            ->get()
-            ->keyBy(static fn (SellerWarehouseStockSnapshot $s): string => (string) $s->chrt_id);
+        $prevByChrt = collect();
+        foreach (array_chunk($chrtIds, self::STOCK_SNAPSHOT_WHEREIN_CHUNK_SIZE) as $chrtChunk) {
+            $batch = SellerWarehouseStockSnapshot::query()
+                ->where('seller_warehouse_id', $warehouse->id)
+                ->whereIn('chrt_id', $chrtChunk)
+                ->get();
+            foreach ($batch as $snap) {
+                $prevByChrt[(string) $snap->chrt_id] = $snap;
+            }
+        }
 
         $now = Carbon::now();
         $snapshotUpsert = [];
@@ -847,12 +892,14 @@ class WbJob implements ShouldQueue
         }
 
         DB::transaction(function () use ($snapshotUpsert, $historyInsert): void {
-            SellerWarehouseStockSnapshot::query()->upsert(
-                $snapshotUpsert,
-                ['seller_warehouse_id', 'chrt_id'],
-                ['amount', 'is_positive', 'collected_at', 'updated_at'],
-            );
-            foreach (array_chunk($historyInsert, 400) as $chunk) {
+            foreach (array_chunk($snapshotUpsert, self::STOCK_SNAPSHOT_UPSERT_CHUNK_SIZE) as $chunk) {
+                SellerWarehouseStockSnapshot::query()->upsert(
+                    $chunk,
+                    ['seller_warehouse_id', 'chrt_id'],
+                    ['amount', 'is_positive', 'collected_at', 'updated_at'],
+                );
+            }
+            foreach (array_chunk($historyInsert, self::STOCK_HISTORY_INSERT_CHUNK_SIZE) as $chunk) {
                 SellerWarehouseStockHistory::query()->insert($chunk);
             }
         });
@@ -878,19 +925,23 @@ class WbJob implements ShouldQueue
         )));
         $sentAt = Carbon::now();
 
-        SellerWarehouseStockHistory::query()
-            ->where('seller_warehouse_id', $warehouseId)
-            ->where('run_key', $runKey)
-            ->whereIn('chrt_id', $chrtIds)
-            ->update([
-                'included_in_wb_batch' => true,
-                'wb_sent_at' => $sentAt,
-            ]);
+        foreach (array_chunk($chrtIds, self::STOCK_MARK_SENT_WHEREIN_CHUNK_SIZE) as $chrtChunk) {
+            SellerWarehouseStockHistory::query()
+                ->where('seller_warehouse_id', $warehouseId)
+                ->where('run_key', $runKey)
+                ->whereIn('chrt_id', $chrtChunk)
+                ->update([
+                    'included_in_wb_batch' => true,
+                    'wb_sent_at' => $sentAt,
+                ]);
+        }
 
-        SellerWarehouseStockSnapshot::query()
-            ->where('seller_warehouse_id', $warehouseId)
-            ->whereIn('chrt_id', $chrtIds)
-            ->update(['last_sent_to_wb_at' => $sentAt]);
+        foreach (array_chunk($chrtIds, self::STOCK_MARK_SENT_WHEREIN_CHUNK_SIZE) as $chrtChunk) {
+            SellerWarehouseStockSnapshot::query()
+                ->where('seller_warehouse_id', $warehouseId)
+                ->whereIn('chrt_id', $chrtChunk)
+                ->update(['last_sent_to_wb_at' => $sentAt]);
+        }
     }
 
     /**

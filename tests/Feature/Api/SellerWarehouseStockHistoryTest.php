@@ -51,6 +51,10 @@ class SellerWarehouseStockHistoryTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('items.0.chrt_id', 555)
             ->assertJsonPath('items.0.amount', 2)
-            ->assertJsonPath('items.0.wb_eligible', true);
+            ->assertJsonPath('items.0.wb_eligible', true)
+            ->assertJsonPath('runs_summary.0.positions', 1)
+            ->assertJsonPath('runs_summary.0.positive', 1)
+            ->assertJsonPath('runs_summary.0.wb_eligible', 1)
+            ->assertJsonPath('runs_summary.0.wb_sent', 0);
     }
 }

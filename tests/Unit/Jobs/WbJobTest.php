@@ -145,6 +145,13 @@ class WbJobTest extends TestCase
         $this->assertSame(15, $payload->mappingId);
     }
 
+    #[TestDox('collectStocks имеет стабильный uniqueId по складу (анти-дубликат в очереди)')]
+    public function test_collect_stocks_unique_id_per_warehouse(): void
+    {
+        $job = new WbJob('collectStocks', ['warehouse_id' => 42]);
+        $this->assertSame('wb-collect-stocks-wh-42', $job->uniqueId());
+    }
+
     #[TestDox('При отсутствии карточки выбрасывается RuntimeException')]
     public function test_case_06(): void
     {

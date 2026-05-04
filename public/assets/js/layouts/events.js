@@ -97,6 +97,7 @@ $(document).on('click', '.warehouseStockHistoryBtn', function () {
     var tmpl = _.template($('#shop-warehouse-stock-history-template').html());
     shopsModalRef.content(tmpl({}));
     $('#whStockHistoryBody').empty();
+    $('#whStockHistorySummary').hide().empty();
     $('#whStockHistoryEmpty').hide();
     ajaxWarehouseStockHistory(whId);
 });
