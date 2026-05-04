@@ -4,16 +4,29 @@ namespace App\Services;
 
 use App\Models\ProductQueue;
 use Exception;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
+use Throwable;
 
 class SimService
 {
+    /** Число попыток GET к api/v3/item (включая первую). */
+    private const SIMA_ITEM_MAX_ATTEMPTS = 15;
+
+    /** Пауза перед повтором после неудачной попытки (индекс 0 = после 1-й неудачи). */
+    private const SIMA_RETRY_BACKOFF_MS = [
+        1000, 2000, 3500, 5000, 8000, 12000, 16000, 20000, 24000, 28000, 30000, 30000, 30000, 30000,
+    ];
+
+    private const SIMA_HTTP_TIMEOUT_SEC = 150;
+
+    private const SIMA_HTTP_CONNECT_TIMEOUT_SEC = 60;
+
     public static function fetchProductData($sid)
     {
-        return Http::withHeaders(['Accept' => 'application/json'])
-            ->get("https://www.sima-land.ru/api/v3/item/?sid={$sid}")
-            ->json();
+        return self::simItemGetWithRetry(['sid' => (string) $sid]);
     }
 
     /**
@@ -36,12 +49,10 @@ class SimService
         $result = [];
         foreach (array_chunk($skus, max(1, $chunkSize)) as $chunk) {
             $sid = implode(',', $chunk);
-            $response = Http::acceptJson()
-                ->timeout(30)
-                ->get('https://www.sima-land.ru/api/v3/item/', [
-                    'sid' => $sid,
-                    'expand' => 'stocks',
-                ])->json();
+            $response = self::simItemGetWithRetry([
+                'sid' => $sid,
+                'expand' => 'stocks',
+            ]);
 
             foreach (($response['items'] ?? []) as $item) {
                 if (! isset($item['sid'])) {
@@ -52,6 +63,139 @@ class SimService
         }
 
         return $result;
+    }
+
+    /**
+     * GET https://www.sima-land.ru/api/v3/item/ с повторами при таймаутах и 5xx/429.
+     *
+     * @param  array<string, string>  $query
+     * @return array<string, mixed>
+     *
+     * @throws RequestException
+     * @throws ConnectionException
+     */
+    private static function simItemGetWithRetry(array $query): array
+    {
+        $max = self::SIMA_ITEM_MAX_ATTEMPTS;
+        $lastThrowable = null;
+
+        for ($attempt = 0; $attempt < $max; $attempt++) {
+            try {
+                $response = Http::acceptJson()
+                    ->timeout(self::SIMA_HTTP_TIMEOUT_SEC)
+                    ->connectTimeout(self::SIMA_HTTP_CONNECT_TIMEOUT_SEC)
+                    ->get('https://www.sima-land.ru/api/v3/item/', $query);
+
+                if ($response->successful()) {
+                    return $response->json() ?? [];
+                }
+
+                if ($attempt < $max - 1 && self::shouldRetryHttpResponse($response)) {
+                    self::simaBackoffSleep($attempt);
+
+                    continue;
+                }
+
+                $response->throw();
+            } catch (ConnectionException $e) {
+                $lastThrowable = $e;
+                if ($attempt < $max - 1) {
+                    self::simaBackoffSleep($attempt);
+
+                    continue;
+                }
+                throw $e;
+            } catch (RequestException $e) {
+                $lastThrowable = $e;
+                if ($attempt < $max - 1 && self::isRetriableRequestException($e)) {
+                    self::simaBackoffSleep($attempt);
+
+                    continue;
+                }
+                throw $e;
+            } catch (Throwable $e) {
+                $lastThrowable = $e;
+                if ($attempt < $max - 1 && self::isRetriableTransportMessage($e)) {
+                    self::simaBackoffSleep($attempt);
+
+                    continue;
+                }
+                throw $e;
+            }
+        }
+
+        if ($lastThrowable !== null) {
+            throw $lastThrowable;
+        }
+
+        throw new ConnectionException('Sima-Land: исчерпаны попытки запроса к api/v3/item.');
+    }
+
+    private static function shouldRetryHttpResponse(\Illuminate\Http\Client\Response $response): bool
+    {
+        if ($response->serverError()) {
+            return true;
+        }
+
+        return $response->status() === 429;
+    }
+
+    private static function isRetriableRequestException(RequestException $e): bool
+    {
+        $response = $e->response;
+        if ($response !== null) {
+            if ($response->serverError()) {
+                return true;
+            }
+            if ($response->status() === 429) {
+                return true;
+            }
+        }
+
+        return self::isRetriableTransportMessage($e);
+    }
+
+    private static function isRetriableTransportMessage(Throwable $e): bool
+    {
+        for ($cur = $e; $cur !== null; $cur = $cur->getPrevious()) {
+            if (self::messageSuggestsTransportRetry($cur->getMessage())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Таймауты соединения, DNS, reset и типичные cURL transport-коды — повторяем запрос.
+     */
+    private static function messageSuggestsTransportRetry(string $message): bool
+    {
+        $m = strtolower($message);
+
+        if (str_contains($m, 'timeout') || str_contains($m, 'timed out') || str_contains($m, 'was reached')) {
+            return true;
+        }
+        if (str_contains($m, 'failed to connect') || str_contains($m, 'could not resolve host')) {
+            return true;
+        }
+        if (str_contains($m, 'port 443') || str_contains($m, 'libcurl') || str_contains($m, 'curl.haxx.se')) {
+            return true;
+        }
+        if (str_contains($m, 'connection refused') || str_contains($m, 'connection reset')) {
+            return true;
+        }
+        if (str_contains($m, 'ssl') && (str_contains($m, 'error') || str_contains($m, 'handshake'))) {
+            return true;
+        }
+
+        return (bool) preg_match('/curl error\\s*(6|7|16|18|28|35|52|56)\\b/i', $m);
+    }
+
+    private static function simaBackoffSleep(int $attemptAfterFailure): void
+    {
+        $ms = self::SIMA_RETRY_BACKOFF_MS[$attemptAfterFailure] ?? 2000;
+        usleep($ms * 1000);
     }
 
     /**

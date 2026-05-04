@@ -10,9 +10,12 @@ use App\Libs\WBContent;
 use App\Models\Cards as CardsModel;
 use App\Models\Sellers;
 use App\Models\SellerWarehouse;
+use App\Models\SellerWarehouseStockHistory;
+use App\Models\SellerWarehouseStockSnapshot;
 use App\Models\SkuMapping;
 use App\Models\SystemNotification;
 use App\Services\SimService;
+use App\Services\WarehouseStockWbEligibility;
 use App\Services\WildberriesService;
 use App\Services\Wb\CardSyncScheduler;
 use Illuminate\Bus\Queueable;
@@ -26,6 +29,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
@@ -610,20 +614,53 @@ class WbJob implements ShouldQueue
                 ? $this->fetchSimaStockRows($cards, $vendorToChrtMap)
                 : $this->fetchWbStockRows($cards, $vendorToChrtMap);
 
+            $collectedAt = Carbon::now();
+            $runKey = null;
+            $persist = ['wb_candidates' => 0, 'rows_for_wb' => []];
+            if ($stockRows !== []) {
+                $runKey = (string) Str::uuid();
+                $persist = $this->persistWarehouseStockSnapshotsAndHistory(
+                    $warehouse,
+                    $stockRows,
+                    $collectedAt,
+                    $runKey,
+                );
+            }
+
             $sentCount = 0;
-            if ($warehouse->stock_send_to_wb && $stockRows !== []) {
-                $sentCount = $this->sendStockChunksToSingleWarehouse($seller, $warehouse, $stockRows);
+            if (
+                $warehouse->stock_send_to_wb
+                && $persist['rows_for_wb'] !== []
+                && $runKey !== null
+            ) {
+                $sentCount = $this->sendStockChunksToSingleWarehouse(
+                    $seller,
+                    $warehouse,
+                    $persist['rows_for_wb'],
+                );
+                $this->markWarehouseStockHistorySent(
+                    (int) $warehouse->id,
+                    $runKey,
+                    $persist['rows_for_wb'],
+                );
+            }
+
+            $resultMeta = [
+                'status' => 'ok',
+                'supplier' => $cardSupplier,
+                'fetched' => count($stockRows),
+                'stored' => count($stockRows),
+                'wb_candidates' => $persist['wb_candidates'],
+                'sent' => $sentCount,
+                'dry_run' => ! $warehouse->stock_send_to_wb,
+            ];
+            if ($runKey !== null) {
+                $resultMeta['run_key'] = $runKey;
             }
 
             $warehouse->forceFill([
                 'stock_last_run_at' => now(),
-                'stock_last_run_result' => [
-                    'status' => 'ok',
-                    'supplier' => $cardSupplier,
-                    'fetched' => count($stockRows),
-                    'sent' => $sentCount,
-                    'dry_run' => ! $warehouse->stock_send_to_wb,
-                ],
+                'stock_last_run_result' => $resultMeta,
             ])->save();
         } catch (Throwable $e) {
             Log::error('WbJob collectStocks failed', [
@@ -707,9 +744,10 @@ class WbJob implements ShouldQueue
             }
             foreach ($stocks as $vendorCode => $quantity) {
                 if (isset($vendorToChrtMap[$vendorCode])) {
+                    $qty = (int) $quantity;
                     $result[] = [
                         'chrtId' => $vendorToChrtMap[$vendorCode],
-                        'amount' => $quantity > self::STOCK_MAX_AMOUNT ? self::STOCK_MAX_AMOUNT : 0,
+                        'amount' => min(self::STOCK_MAX_AMOUNT, max(0, $qty)),
                     ];
                 }
             }
@@ -740,6 +778,119 @@ class WbJob implements ShouldQueue
         }
 
         return $result;
+    }
+
+    /**
+     * @param  list<array{chrtId: mixed, amount: int}>  $stockRows
+     * @return array{wb_candidates: int, rows_for_wb: list<array{chrtId: int, amount: int}>}
+     */
+    private function persistWarehouseStockSnapshotsAndHistory(
+        SellerWarehouse $warehouse,
+        array $stockRows,
+        Carbon $collectedAt,
+        string $runKey,
+    ): array {
+        if ($stockRows === []) {
+            return ['wb_candidates' => 0, 'rows_for_wb' => []];
+        }
+
+        $chrtIds = array_values(array_unique(array_map(
+            static fn (array $r): int => (int) $r['chrtId'],
+            $stockRows,
+        )));
+
+        $prevByChrt = SellerWarehouseStockSnapshot::query()
+            ->where('seller_warehouse_id', $warehouse->id)
+            ->whereIn('chrt_id', $chrtIds)
+            ->get()
+            ->keyBy(static fn (SellerWarehouseStockSnapshot $s): string => (string) $s->chrt_id);
+
+        $now = Carbon::now();
+        $snapshotUpsert = [];
+        $historyInsert = [];
+        $rowsForWb = [];
+
+        foreach ($stockRows as $row) {
+            $chrtId = (int) $row['chrtId'];
+            $amount = (int) $row['amount'];
+            $isPositive = $amount > 0;
+            $prev = $prevByChrt->get((string) $chrtId);
+            $prevPositive = $prev !== null ? (bool) $prev->is_positive : null;
+            $eligible = WarehouseStockWbEligibility::shouldSyncToWb($prevPositive, $isPositive);
+            if ($eligible) {
+                $rowsForWb[] = ['chrtId' => $chrtId, 'amount' => $amount];
+            }
+
+            $snapshotUpsert[] = [
+                'seller_warehouse_id' => $warehouse->id,
+                'chrt_id' => $chrtId,
+                'amount' => $amount,
+                'is_positive' => $isPositive,
+                'collected_at' => $collectedAt,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            $historyInsert[] = [
+                'seller_warehouse_id' => $warehouse->id,
+                'chrt_id' => $chrtId,
+                'amount' => $amount,
+                'is_positive' => $isPositive,
+                'wb_eligible' => $eligible,
+                'included_in_wb_batch' => false,
+                'wb_sent_at' => null,
+                'collected_at' => $collectedAt,
+                'run_key' => $runKey,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        DB::transaction(function () use ($snapshotUpsert, $historyInsert): void {
+            SellerWarehouseStockSnapshot::query()->upsert(
+                $snapshotUpsert,
+                ['seller_warehouse_id', 'chrt_id'],
+                ['amount', 'is_positive', 'collected_at', 'updated_at'],
+            );
+            foreach (array_chunk($historyInsert, 400) as $chunk) {
+                SellerWarehouseStockHistory::query()->insert($chunk);
+            }
+        });
+
+        return [
+            'wb_candidates' => count($rowsForWb),
+            'rows_for_wb' => $rowsForWb,
+        ];
+    }
+
+    /**
+     * @param  list<array{chrtId: int, amount: int}>  $rowsForWb
+     */
+    private function markWarehouseStockHistorySent(int $warehouseId, string $runKey, array $rowsForWb): void
+    {
+        if ($rowsForWb === []) {
+            return;
+        }
+
+        $chrtIds = array_values(array_unique(array_map(
+            static fn (array $r): int => (int) $r['chrtId'],
+            $rowsForWb,
+        )));
+        $sentAt = Carbon::now();
+
+        SellerWarehouseStockHistory::query()
+            ->where('seller_warehouse_id', $warehouseId)
+            ->where('run_key', $runKey)
+            ->whereIn('chrt_id', $chrtIds)
+            ->update([
+                'included_in_wb_batch' => true,
+                'wb_sent_at' => $sentAt,
+            ]);
+
+        SellerWarehouseStockSnapshot::query()
+            ->where('seller_warehouse_id', $warehouseId)
+            ->whereIn('chrt_id', $chrtIds)
+            ->update(['last_sent_to_wb_at' => $sentAt]);
     }
 
     /**

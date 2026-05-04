@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\Sellers;
 use App\Models\SellerWarehouse;
+use App\Models\SellerWarehouseStockHistory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -221,6 +222,37 @@ class Seller
         SellerWarehouse::destroy($validated['id']);
 
         return response()->json(['success' => true]);
+    }
+
+    public function warehouseStockHistory(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'warehouse_id' => 'required|integer|exists:seller_warehouses,id',
+            'limit' => 'sometimes|integer|min:1|max:500',
+        ]);
+        $limit = (int) ($validated['limit'] ?? 100);
+
+        $items = SellerWarehouseStockHistory::query()
+            ->where('seller_warehouse_id', $validated['warehouse_id'])
+            ->orderByDesc('collected_at')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get()
+            ->map(static fn (SellerWarehouseStockHistory $h): array => [
+                'id' => $h->id,
+                'chrt_id' => $h->chrt_id,
+                'amount' => $h->amount,
+                'is_positive' => (bool) $h->is_positive,
+                'wb_eligible' => (bool) $h->wb_eligible,
+                'included_in_wb_batch' => (bool) $h->included_in_wb_batch,
+                'wb_sent_at' => $h->wb_sent_at?->toIso8601String(),
+                'collected_at' => $h->collected_at?->toIso8601String(),
+                'run_key' => $h->run_key,
+            ])
+            ->values()
+            ->all();
+
+        return response()->json(['items' => $items]);
     }
 
     /**

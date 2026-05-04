@@ -46,6 +46,69 @@ function syncWarehouseStockFormControls() {
     }
 }
 
+function resetShopFormApiKeyVisibility() {
+    var $inp = $('#shopFormApiKey');
+    var $btn = $('.js-shop-api-key-toggle');
+    if ($inp.length) {
+        $inp.attr('type', 'password');
+    }
+    $btn.find('i').removeClass('mdi-eye-off-outline').addClass('mdi-eye-outline');
+}
+
+$(document).on('click', '.js-shop-api-key-toggle', function () {
+    var $inp = $('#shopFormApiKey');
+    var $icon = $(this).find('i');
+    if (!$inp.length) {
+        return;
+    }
+    if ($inp.attr('type') === 'password') {
+        $inp.attr('type', 'text');
+        $icon.removeClass('mdi-eye-outline').addClass('mdi-eye-off-outline');
+    } else {
+        $inp.attr('type', 'password');
+        $icon.removeClass('mdi-eye-off-outline').addClass('mdi-eye-outline');
+    }
+});
+
+$(document).on('click', '.js-toggle-shop-key', function () {
+    var sid = $(this).data('shop-id');
+    var s = window.__shopsListCache && window.__shopsListCache[sid];
+    var $row = $(this).closest('.shops-key-line');
+    var $disp = $row.find('.shops-api-key-display');
+    var $icon = $(this).find('i');
+    if (!s || !$disp.length) {
+        return;
+    }
+    if ($disp.data('revealed')) {
+        $disp.text('••••••••').data('revealed', false);
+        $icon.removeClass('mdi-eye-off-outline').addClass('mdi-eye-outline');
+    } else {
+        $disp.text(s.wb_api_key || '').data('revealed', true);
+        $icon.removeClass('mdi-eye-outline').addClass('mdi-eye-off-outline');
+    }
+});
+
+$(document).on('click', '.warehouseStockHistoryBtn', function () {
+    var whId = $(this).data('wh-id');
+    if (!shopsModalRef || !whId) {
+        return;
+    }
+    shopsModalRef.window.find('.modal-title').text('История остатков');
+    var tmpl = _.template($('#shop-warehouse-stock-history-template').html());
+    shopsModalRef.content(tmpl({}));
+    $('#whStockHistoryBody').empty();
+    $('#whStockHistoryEmpty').hide();
+    ajaxWarehouseStockHistory(whId);
+});
+
+$(document).on('click', '#whStockHistoryBack', function () {
+    if (!shopsModalRef) {
+        return;
+    }
+    shopsModalRef.window.find('.modal-title').text('Магазины');
+    ajaxGetShops(shopsModalRef);
+});
+
 $(document).on('click', "#addSupplierModal", function () {
     let modal = new Modal({
         title: 'Добавить поставщика'
@@ -109,6 +172,7 @@ $(document).on('click', '#shopAddBtn', function () {
     $('#shopFormId').val('');
     $('#shopFormName').val('');
     $('#shopFormApiKey').val('');
+    resetShopFormApiKeyVisibility();
 });
 
 $(document).on('click', '.shopEditBtn', function () {
@@ -123,6 +187,7 @@ $(document).on('click', '.shopEditBtn', function () {
     $('#shopFormId').val(s.id);
     $('#shopFormName').val(s.name);
     $('#shopFormApiKey').val(s.wb_api_key);
+    resetShopFormApiKeyVisibility();
 });
 
 $(document).on('click', '#shopFormCancel', function () {

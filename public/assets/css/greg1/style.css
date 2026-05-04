@@ -2009,3 +2009,170 @@ textarea:focus-visible,
         line-height: 1.35;
     }
 }
+
+/* --- Модалка «Магазины» (#windowModal) --- */
+#windowModal .shops-modal-ui {
+    font-size: 0.9375rem;
+}
+
+#windowModal .shops-modal-ui .shops-seller-block {
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+#windowModal .shops-modal-ui .shops-seller-block:last-child {
+    border-bottom: 0;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+#windowModal .shops-modal-ui .shops-toolbar-gap {
+    gap: 0.35rem;
+}
+
+#windowModal .shops-modal-ui .shops-btn-soft {
+    color: #3b4cca;
+    background: rgba(68, 86, 242, 0.1);
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+#windowModal .shops-modal-ui .shops-btn-soft:hover {
+    background: rgba(68, 86, 242, 0.18);
+    color: #2f3eb8;
+}
+
+#windowModal .shops-modal-ui .shops-btn-danger-ghost {
+    color: #c82333;
+    background: transparent;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+#windowModal .shops-modal-ui .shops-btn-danger-ghost:hover {
+    background: rgba(200, 35, 51, 0.08);
+    color: #a71d2a;
+}
+
+#windowModal .shops-modal-ui .shops-key-chip {
+    display: inline-block;
+    max-width: 14rem;
+    padding: 0.12rem 0.45rem;
+    border-radius: 0.25rem;
+    background: #f1f3f5;
+    font-size: 0.8125rem;
+    vertical-align: middle;
+}
+
+#windowModal .shops-modal-ui .shops-table-wrap {
+    border: 0;
+    border-radius: 0.35rem;
+    background: #fafbfc;
+}
+
+#windowModal .shops-modal-ui .shops-table {
+    background: transparent;
+}
+
+#windowModal .shops-modal-ui .shops-table thead th {
+    border-top: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6c757d;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    background: transparent;
+}
+
+#windowModal .shops-modal-ui .shops-table tbody td {
+    border-color: rgba(15, 23, 42, 0.05);
+    vertical-align: middle;
+}
+
+#windowModal .shops-modal-ui .shops-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+#windowModal .shops-modal-ui .shops-btn-icon {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent;
+    color: #5c6bc0;
+    padding: 0.2rem 0.35rem;
+    line-height: 1;
+    border-radius: 0.25rem;
+}
+
+#windowModal .shops-modal-ui .shops-btn-icon:hover {
+    background: rgba(68, 86, 242, 0.1);
+    color: #3949ab;
+}
+
+#windowModal .shops-modal-ui .shops-btn-icon--danger {
+    color: #c82333;
+}
+
+#windowModal .shops-modal-ui .shops-btn-icon--danger:hover {
+    background: rgba(200, 35, 51, 0.1);
+    color: #a71d2a;
+}
+
+#windowModal .shops-modal-ui .shops-dot {
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    margin-right: 0.25rem;
+    vertical-align: 0.1rem;
+    background: #ced4da;
+}
+
+#windowModal .shops-modal-ui .shops-dot--on {
+    background: #28a745;
+}
+
+#windowModal .shops-modal-ui .shops-dot--wb.shops-dot--on {
+    background: #4456f2;
+}
+
+#windowModal .shops-modal-ui .shops-form-actions .btn {
+    box-shadow: none !important;
+}
+
+#windowModal .shops-modal-ui .shops-btn-wide {
+    min-width: 6.5rem;
+}
+
+#windowModal .shops-modal-ui .shops-input-merge .form-control {
+    border-right: 0;
+}
+
+#windowModal .shops-modal-ui .shops-input-append-btn {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: #f1f3f5;
+    color: #495057;
+    border-top-right-radius: 0.25rem !important;
+    border-bottom-right-radius: 0.25rem !important;
+}
+
+#windowModal .shops-modal-ui .shops-input-append-btn:hover {
+    background: #e9ecef;
+    color: #212529;
+}
+
+#windowModal .shops-modal-ui .shops-wh-stock-block {
+    padding: 0.75rem 0.85rem;
+    border-radius: 0.35rem;
+    background: #fafbfc;
+    border: 0;
+}
+
+#windowModal .shops-modal-ui .shops-history-scroll {
+    max-height: 55vh;
+    overflow: auto;
+}

@@ -235,3 +235,51 @@ function ajaxDestroyWarehouse(id) {
         .done(refreshShopsModal)
         .fail(shopsAjaxFail);
 }
+
+function ajaxWarehouseStockHistory(warehouseId) {
+    ajaxPostJson('/api/sellers/warehouseStockHistory', {
+        warehouse_id: parseInt(warehouseId, 10),
+        limit: 200,
+    })
+        .done(function (res) {
+            var items = res.items || [];
+            var $body = $('#whStockHistoryBody');
+            var $empty = $('#whStockHistoryEmpty');
+            if (!$body.length) {
+                return;
+            }
+            $body.empty();
+            if (!items.length) {
+                $empty.show();
+                return;
+            }
+            $empty.hide();
+            items.forEach(function (row) {
+                var sent = row.included_in_wb_batch ? 'да' : 'нет';
+                var ts = row.collected_at
+                    ? String(row.collected_at).replace('T', ' ').substring(0, 19)
+                    : '';
+                var wts = row.wb_sent_at
+                    ? String(row.wb_sent_at).replace('T', ' ').substring(0, 19)
+                    : '—';
+                $body.append(
+                    '<tr><td class="text-nowrap small">' +
+                        _.escape(ts) +
+                        '</td><td>' +
+                        _.escape(String(row.chrt_id)) +
+                        '</td><td>' +
+                        _.escape(String(row.amount)) +
+                        '</td><td>' +
+                        (row.is_positive ? 'да' : 'нет') +
+                        '</td><td>' +
+                        (row.wb_eligible ? 'да' : 'нет') +
+                        '</td><td>' +
+                        sent +
+                        '</td><td class="small text-nowrap">' +
+                        _.escape(wts) +
+                        '</td></tr>',
+                );
+            });
+        })
+        .fail(shopsAjaxFail);
+}

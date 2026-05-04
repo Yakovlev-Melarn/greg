@@ -15,3 +15,7 @@ Schedule::command('sku-mapping:retry-empty --limit=200 --older-than=10')
 Schedule::command('stocks:dispatch-due')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::command('warehouse-stock:prune-history')
+    ->weeklyOn(0, '3:00')
+    ->withoutOverlapping();

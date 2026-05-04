@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @method static create(array $attributes)
@@ -42,5 +43,15 @@ class SellerWarehouse extends Model
     public function seller(): BelongsTo
     {
         return $this->belongsTo(Sellers::class, 'seller_id');
+    }
+
+    public function stockSnapshots(): HasMany
+    {
+        return $this->hasMany(SellerWarehouseStockSnapshot::class, 'seller_warehouse_id');
+    }
+
+    public function stockHistories(): HasMany
+    {
+        return $this->hasMany(SellerWarehouseStockHistory::class, 'seller_warehouse_id');
     }
 }
