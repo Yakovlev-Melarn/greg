@@ -101,6 +101,14 @@
                                 <small class="form-text text-muted">Нажмите на поле — откроется выбор времени</small>
                             </div>
                         </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-12">
+                                <label for="reportVehicleId">Автомобиль</label>
+                                <select class="form-control" id="reportVehicleId" name="fleet_vehicle_id">
+                                    <option value="">Без автомобиля</option>
+                                </select>
+                            </div>
+                        </div>
                         <div class="form-row align-items-end">
                             <div class="form-group col-md-4">
                                 <div class="form-check mt-2">

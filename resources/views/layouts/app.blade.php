@@ -189,7 +189,7 @@
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="/schedule">
                     <span class="link-title">График</span>
                     <i class="mdi mdi-calendar link-icon"></i>
                 </a>

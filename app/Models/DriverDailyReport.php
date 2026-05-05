@@ -9,6 +9,7 @@ class DriverDailyReport extends Model
 {
     protected $fillable = [
         'driver_id',
+        'fleet_vehicle_id',
         'report_date',
         'work_hours',
         'extra_work_hours',
@@ -33,5 +34,10 @@ class DriverDailyReport extends Model
     public function driver(): BelongsTo
     {
         return $this->belongsTo(Driver::class);
+    }
+
+    public function vehicle(): BelongsTo
+    {
+        return $this->belongsTo(FleetVehicle::class, 'fleet_vehicle_id');
     }
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Models\Driver;
 use App\Models\DriverDailyReport;
+use App\Models\FleetVehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\TestDox;
 use Tests\TestCase;
@@ -15,13 +16,21 @@ class DriverDailyReportsApiTest extends TestCase
     #[TestDox('Создание отчёта: ночная погрузка без суммы получает значение по умолчанию 3000')]
     public function test_store_sets_default_night_amount_when_flag_true(): void
     {
-        $driver = Driver::create(['full_name' => 'Тестовый']);
+        $vehicle = FleetVehicle::create([
+            'brand' => 'GAZ',
+            'model' => 'Next',
+            'plate_number' => 'A123AA77',
+            'tonnage' => 2.5,
+            'ownership_type' => 'owned',
+        ]);
+        $driver = Driver::create(['full_name' => 'Тестовый', 'fleet_vehicle_id' => $vehicle->id]);
 
         $response = $this->postJson('/api/driver-daily-reports/store', [
             'driver_id' => $driver->id,
             'report_date' => '2026-05-15',
             'work_hours' => 8,
             'extra_work_hours' => 1,
+            'fleet_vehicle_id' => $vehicle->id,
             'night_loading' => true,
             'manual_floor_lift' => false,
             'route_sheet_total' => 12000,
@@ -29,9 +38,12 @@ class DriverDailyReportsApiTest extends TestCase
 
         $response->assertCreated();
         $this->assertEquals(3000, $response->json('night_loading_amount'));
+        $this->assertEquals($vehicle->id, $response->json('fleet_vehicle_id'));
+        $this->assertStringContainsString($vehicle->plate_number, (string) $response->json('vehicle_label'));
 
         $this->assertDatabaseHas('driver_daily_reports', [
             'driver_id' => $driver->id,
+            'fleet_vehicle_id' => $vehicle->id,
             'night_loading' => 1,
             'night_loading_amount' => 3000,
             'manual_floor_lift' => 0,
@@ -114,11 +126,26 @@ class DriverDailyReportsApiTest extends TestCase
     #[TestDox('Обновление и удаление отчёта')]
     public function test_update_and_destroy(): void
     {
-        $driver = Driver::create(['full_name' => 'Водитель']);
+        $vehicle1 = FleetVehicle::create([
+            'brand' => 'GAZ',
+            'model' => 'Valdai',
+            'plate_number' => 'B234BB77',
+            'tonnage' => 3.5,
+            'ownership_type' => 'owned',
+        ]);
+        $vehicle2 = FleetVehicle::create([
+            'brand' => 'Ford',
+            'model' => 'Transit',
+            'plate_number' => 'C345CC77',
+            'tonnage' => 1.5,
+            'ownership_type' => 'owned',
+        ]);
+        $driver = Driver::create(['full_name' => 'Водитель', 'fleet_vehicle_id' => $vehicle1->id]);
 
         $store = $this->postJson('/api/driver-daily-reports/store', [
             'driver_id' => $driver->id,
             'report_date' => '2026-05-10',
+            'fleet_vehicle_id' => $vehicle1->id,
             'work_hours' => 8,
             'night_loading' => false,
             'manual_floor_lift' => false,
@@ -130,6 +157,7 @@ class DriverDailyReportsApiTest extends TestCase
             'id' => $id,
             'driver_id' => $driver->id,
             'report_date' => '2026-05-10',
+            'fleet_vehicle_id' => $vehicle2->id,
             'work_hours' => 9.5,
             'extra_work_hours' => 2,
             'night_loading' => true,
@@ -140,6 +168,7 @@ class DriverDailyReportsApiTest extends TestCase
         ]);
         $update->assertOk()
             ->assertJsonPath('work_hours', 9.5)
+            ->assertJsonPath('fleet_vehicle_id', $vehicle2->id)
             ->assertJsonPath('night_loading_amount', 4500)
             ->assertJsonPath('manual_floor_lift_amount', 500);
 

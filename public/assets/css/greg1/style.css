@@ -2094,6 +2094,142 @@ textarea:focus-visible,
     outline: none;
 }
 
+/* Schedule page */
+.page-schedule .schedule-toolbar,
+.page-schedule .schedule-calendar-panel,
+.page-schedule .schedule-day-panel {
+    padding: 16px 20px;
+}
+
+.page-schedule .schedule-month-nav .btn {
+    min-width: 34px;
+}
+
+.page-schedule .schedule-month-picker {
+    width: 145px;
+    min-width: 145px;
+}
+
+.page-schedule .schedule-calendar-scroll {
+    overflow-x: auto;
+}
+
+.page-schedule .schedule-weekdays-grid,
+.page-schedule .schedule-days-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.page-schedule .schedule-weekdays-grid {
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.page-schedule .schedule-day-cell {
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 10px;
+    min-height: 120px;
+    padding: 8px;
+    cursor: pointer;
+    background: #fff;
+}
+
+.page-schedule .schedule-day-cell.is-other-month {
+    opacity: 0.55;
+}
+
+.page-schedule .schedule-day-cell.is-selected {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.page-schedule .schedule-day-num {
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.page-schedule .schedule-day-badges {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.page-schedule .schedule-driver-badge {
+    border: 0;
+    background: rgba(37, 99, 235, 0.1);
+    color: #1d4ed8;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    text-align: left;
+}
+
+.page-schedule .schedule-day-more {
+    font-size: 0.74rem;
+    color: #6b7280;
+}
+
+.page-schedule .schedule-day-driver-card {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+
+.page-schedule .schedule-monthly-chart-wrap {
+    min-height: 240px;
+    position: relative;
+}
+
+.page-schedule #scheduleMonthlyPieChart {
+    width: 100% !important;
+    max-height: 230px;
+}
+
+@media (max-width: 1199px) {
+    .page-schedule .schedule-month-nav {
+        gap: 0.4rem;
+    }
+}
+
+@media (max-width: 991px) {
+    .page-schedule .schedule-toolbar,
+    .page-schedule .schedule-calendar-panel,
+    .page-schedule .schedule-day-panel {
+        padding: 12px;
+    }
+
+    .page-schedule .schedule-month-nav {
+        width: 100%;
+        margin-top: 10px !important;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .page-schedule .schedule-month-nav #scheduleMonthLabel {
+        width: 100%;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        margin-bottom: 4px;
+    }
+
+    .page-schedule .schedule-weekdays-grid,
+    .page-schedule .schedule-days-grid {
+        min-width: 700px;
+    }
+
+    .page-schedule .schedule-day-cell {
+        min-height: 106px;
+    }
+
+    .page-schedule .schedule-driver-badge {
+        font-size: 0.72rem;
+        padding: 2px 7px;
+    }
+}
+
 /* --- Модалка «Магазины» (#windowModal) --- */
 #windowModal .shops-modal-ui {
     font-size: 0.9375rem;

@@ -13,6 +13,7 @@ const $reportNightLoading = $('#reportNightLoading');
 const $reportNightAmount = $('#reportNightAmount');
 const $reportManualLift = $('#reportManualLift');
 const $reportManualAmount = $('#reportManualAmount');
+const $reportVehicleId = $('#reportVehicleId');
 const $deleteReportBtn = $('#deleteReportBtn');
 
 const state = {
@@ -224,6 +225,31 @@ function renderDriverOptions($select, selectedId) {
     }
 }
 
+function renderVehicleOptions(selectedVehicleId, fallbackDriverId) {
+    const vehicleMap = new Map();
+    state.drivers.forEach(function (d) {
+        if (d.fleet_vehicle_id && d.vehicle_label) {
+            vehicleMap.set(String(d.fleet_vehicle_id), d.vehicle_label);
+        }
+    });
+
+    $reportVehicleId.html('<option value="">Без автомобиля</option>');
+    Array.from(vehicleMap.entries()).forEach(function ([id, label]) {
+        $reportVehicleId.append(`<option value="${id}">${escapeHtml(label)}</option>`);
+    });
+
+    let selected = selectedVehicleId;
+    if ((selected == null || selected === '') && fallbackDriverId) {
+        const driver = state.drivers.find(function (d) { return Number(d.id) === Number(fallbackDriverId); });
+        selected = driver?.fleet_vehicle_id ?? '';
+    }
+    if (selected != null && selected !== '') {
+        $reportVehicleId.val(String(selected));
+    } else {
+        $reportVehicleId.val('');
+    }
+}
+
 function syncNightFields() {
     const on = $reportNightLoading.is(':checked');
     $reportNightAmount.prop('disabled', !on);
@@ -248,6 +274,7 @@ function openReportModal(report) {
     $('#reportId').val(report.id);
     $('#reportModalTitle').text('Отчёт за ' + report.report_date);
     renderDriverOptions($reportDriverId, report.driver_id);
+    renderVehicleOptions(report.fleet_vehicle_id, report.driver_id);
     $('#reportDate').val(report.report_date);
     setDurationField($('#reportWorkHours'), report.work_hours);
     setDurationField($('#reportExtraHours'), report.extra_work_hours);
@@ -332,6 +359,7 @@ function resetReportForm() {
     setDurationField($('#reportWorkHours'), 12);
     setDurationField($('#reportExtraHours'), 0);
     renderDriverOptions($reportDriverId, '');
+    renderVehicleOptions('', '');
     $reportNightLoading.prop('checked', false);
     $reportManualLift.prop('checked', false);
     syncNightFields();
@@ -363,6 +391,14 @@ $('#filterWeekNext').on('click', function () {
 
 $reportNightLoading.on('change', syncNightFields);
 $reportManualLift.on('change', syncManualFields);
+$reportDriverId.on('change', function () {
+    const driverId = Number($reportDriverId.val());
+    const reportId = Number($('#reportId').val());
+    if (reportId) {
+        return;
+    }
+    renderVehicleOptions('', driverId);
+});
 
 $form.on('submit', function (e) {
     e.preventDefault();
@@ -380,6 +416,7 @@ $form.on('submit', function (e) {
     const endpoint = id ? '/api/driver-daily-reports/update' : '/api/driver-daily-reports/store';
     const payload = {
         driver_id: Number($reportDriverId.val()),
+        fleet_vehicle_id: $reportVehicleId.val() ? Number($reportVehicleId.val()) : null,
         report_date: $('#reportDate').val(),
         work_hours: wh.decimal,
         extra_work_hours: eh.decimal,

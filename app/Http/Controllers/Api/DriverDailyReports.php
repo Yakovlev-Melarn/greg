@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\Driver;
 use App\Models\DriverDailyReport;
+use App\Models\FleetVehicle;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -32,7 +33,7 @@ class DriverDailyReports
         $sunday = $monday->copy()->addDays(6);
 
         $query = DriverDailyReport::query()
-            ->with('driver')
+            ->with(['driver', 'vehicle'])
             ->whereDate('report_date', '>=', $monday->toDateString())
             ->whereDate('report_date', '<=', $sunday->toDateString());
 
@@ -69,7 +70,7 @@ class DriverDailyReports
             throw $e;
         }
 
-        return response()->json($this->toResource($report->load('driver')), 201);
+        return response()->json($this->toResource($report->load(['driver', 'vehicle'])), 201);
     }
 
     public function update(Request $request): JsonResponse
@@ -99,7 +100,7 @@ class DriverDailyReports
             throw $e;
         }
 
-        return response()->json($this->toResource($report->fresh('driver')));
+        return response()->json($this->toResource($report->fresh(['driver', 'vehicle'])));
     }
 
     public function destroy(Request $request): JsonResponse
@@ -118,6 +119,7 @@ class DriverDailyReports
     {
         return $request->validate([
             'driver_id' => ['required', 'integer', 'exists:drivers,id'],
+            'fleet_vehicle_id' => ['nullable', 'integer', 'exists:fleet_vehicles,id'],
             'report_date' => ['required', 'date', $uniqueRule],
             'work_hours' => ['nullable', 'numeric', 'min:0'],
             'extra_work_hours' => ['nullable', 'numeric', 'min:0'],
@@ -151,6 +153,7 @@ class DriverDailyReports
 
         return [
             'driver_id' => (int) $validated['driver_id'],
+            'fleet_vehicle_id' => empty($validated['fleet_vehicle_id']) ? null : (int) $validated['fleet_vehicle_id'],
             'report_date' => Carbon::parse($validated['report_date'])->toDateString(),
             'work_hours' => $this->nullableFloat($validated['work_hours'] ?? null),
             'extra_work_hours' => $this->nullableFloat($validated['extra_work_hours'] ?? null),
@@ -182,11 +185,19 @@ class DriverDailyReports
     private function toResource(DriverDailyReport $report): array
     {
         $driver = $report->driver ?? Driver::find($report->driver_id);
+        $vehicle = $report->vehicle;
+        if (! $vehicle && $driver?->fleet_vehicle_id) {
+            $vehicle = FleetVehicle::find((int) $driver->fleet_vehicle_id);
+        }
 
         return [
             'id' => $report->id,
             'driver_id' => $report->driver_id,
             'driver_name' => $driver?->full_name,
+            'fleet_vehicle_id' => $report->fleet_vehicle_id,
+            'vehicle_label' => $vehicle
+                ? trim(sprintf('%s %s (%s)', $vehicle->brand, $vehicle->model, $vehicle->plate_number))
+                : null,
             'report_date' => $report->report_date instanceof Carbon
                 ? $report->report_date->toDateString()
                 : (string) $report->report_date,
