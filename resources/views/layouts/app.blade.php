@@ -201,7 +201,7 @@
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="/driver-adjustments">
                     <span class="link-title">Надбавки / штрафы</span>
                     <i class="mdi mdi-cash link-icon"></i>
                 </a>

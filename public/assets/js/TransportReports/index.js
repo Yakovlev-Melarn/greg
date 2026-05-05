@@ -279,7 +279,7 @@ function renderReports() {
         $tableBody.append(`
             <tr data-report-id="${r.id}">
                 <td>
-                    <button type="button" class="btn btn-link p-0 text-left js-open-report" data-id="${r.id}">
+                    <button type="button" class="transport-report-date-open js-open-report" data-id="${r.id}">
                         ${escapeHtml(r.report_date)}
                     </button>
                 </td>
@@ -326,10 +326,11 @@ function resetReportForm() {
     $form[0].reset();
     $('#reportId').val('');
     $('#reportModalTitle').text('Новый отчёт');
-    const d = new Date();
-    $('#reportDate').val(d.toISOString().slice(0, 10));
-    setDurationField($('#reportWorkHours'), null);
-    setDurationField($('#reportExtraHours'), null);
+    const today = new Date();
+    const localNoon = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0, 0);
+    $('#reportDate').val(toYmd(localNoon));
+    setDurationField($('#reportWorkHours'), 12);
+    setDurationField($('#reportExtraHours'), 0);
     renderDriverOptions($reportDriverId, '');
     $reportNightLoading.prop('checked', false);
     $reportManualLift.prop('checked', false);

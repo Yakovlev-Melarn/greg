@@ -89,6 +89,28 @@ class DriverDailyReportsApiTest extends TestCase
         $this->assertSame('Б', $filter->json('0.driver_name'));
     }
 
+    #[TestDox('Неделя пн 2026-02-23 — вс 2026-03-01 включает отчёт за воскресенье 2026-03-01')]
+    public function test_list_includes_sunday_at_end_of_week_crossing_month(): void
+    {
+        $driver = Driver::create(['full_name' => 'Водитель']);
+
+        DriverDailyReport::create([
+            'driver_id' => $driver->id,
+            'report_date' => '2026-03-01',
+            'work_hours' => 8,
+            'night_loading' => false,
+            'manual_floor_lift' => false,
+        ]);
+
+        $response = $this->postJson('/api/driver-daily-reports/list', [
+            'week_monday' => '2026-02-23',
+        ]);
+
+        $response->assertOk();
+        $this->assertCount(1, $response->json());
+        $this->assertSame('2026-03-01', $response->json('0.report_date'));
+    }
+
     #[TestDox('Обновление и удаление отчёта')]
     public function test_update_and_destroy(): void
     {

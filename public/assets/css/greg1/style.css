@@ -1965,6 +1965,32 @@ textarea:focus-visible,
     font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+/* Дата в таблице: без рамки и «кнопочного» обрамления */
+.page-transport-reports .transport-report-date-open {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    box-shadow: none;
+    font: inherit;
+    color: #2563eb;
+    text-align: left;
+    text-decoration: underline;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.page-transport-reports .transport-report-date-open:hover,
+.page-transport-reports .transport-report-date-open:focus {
+    color: #1d4ed8;
+    text-decoration: underline;
+    border: none;
+    box-shadow: none;
+    outline: none;
+}
+
 /* Отчёты перевозок: шапка отдельно от фильтров (неделя пн–вс) */
 .page-transport-reports .transport-reports-toolbar {
     padding: 18px 20px;
@@ -2008,6 +2034,64 @@ textarea:focus-visible,
         font-size: 0.88rem;
         line-height: 1.35;
     }
+}
+
+/* Driver adjustments page */
+.page-driver-adjustments .adjustments-toolbar {
+    padding: 18px 20px;
+}
+
+.page-driver-adjustments .adjustments-toolbar__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.page-driver-adjustments .adjustments-summary,
+.page-driver-adjustments .adjustments-filters {
+    padding: 16px 20px;
+}
+
+.page-driver-adjustments .adjustment-summary-card {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.8);
+    padding: 10px 12px;
+}
+
+.page-driver-adjustments .adjustment-summary-card__label {
+    color: #6b7280;
+    font-size: 0.82rem;
+    margin-bottom: 4px;
+}
+
+.page-driver-adjustments .adjustment-summary-card__value {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.page-driver-adjustments .adjustment-row-link {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    box-shadow: none;
+    font: inherit;
+    color: #2563eb;
+    text-decoration: underline;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.page-driver-adjustments .adjustment-row-link:hover,
+.page-driver-adjustments .adjustment-row-link:focus {
+    color: #1d4ed8;
+    border: none;
+    box-shadow: none;
+    outline: none;
 }
 
 /* --- Модалка «Магазины» (#windowModal) --- */

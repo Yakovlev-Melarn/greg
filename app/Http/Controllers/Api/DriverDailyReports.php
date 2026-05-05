@@ -33,7 +33,8 @@ class DriverDailyReports
 
         $query = DriverDailyReport::query()
             ->with('driver')
-            ->whereBetween('report_date', [$monday->toDateString(), $sunday->toDateString()]);
+            ->whereDate('report_date', '>=', $monday->toDateString())
+            ->whereDate('report_date', '<=', $sunday->toDateString());
 
         if (! empty($validated['driver_id'])) {
             $query->where('driver_id', (int) $validated['driver_id']);
