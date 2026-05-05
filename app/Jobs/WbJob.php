@@ -16,8 +16,8 @@ use App\Models\SkuMapping;
 use App\Models\SystemNotification;
 use App\Services\SimService;
 use App\Services\WarehouseStockWbEligibility;
-use App\Services\WildberriesService;
 use App\Services\Wb\CardSyncScheduler;
+use App\Services\WildberriesService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,18 +44,31 @@ class WbJob implements ShouldBeUnique, ShouldQueue
     public int $uniqueFor = 7200;
 
     private const ACTION_UPDATE_PRICE = 'updatePrice';
+
     private const ACTION_GET_CARD_LIST = 'getCardList';
+
     private const ACTION_UPLOAD_PHOTOS = 'uploadPhotos';
+
     private const ACTION_COLLECT_STOCKS = 'collectStocks';
+
     private const QUEUE_UPDATE_CARDS_PROCESS = 'updateCardsProcess';
+
     private const QUEUE_UPDATE_PRICE = 'updatePrice';
+
     public const QUEUE_STOCKS = 'wbStocks';
+
     private const PRICE_UPDATE_DEFAULT_BATCH_SIZE = 1000;
+
     private const PRICE_UPDATE_DEFAULT_MAX_BATCHES_PER_RUN = 20;
+
     private const PRICE_MARGIN = 0.25;
+
     private const STOCK_CHUNK_SIZE = 100;
+
     private const STOCK_UPDATE_CHUNK_SIZE = 1000;
+
     private const STOCK_MAX_AMOUNT = 5;
+
     private const SIMA_STOCK_CHUNK_SIZE = 50;
 
     /**
@@ -71,11 +84,12 @@ class WbJob implements ShouldBeUnique, ShouldQueue
     private const STOCK_MARK_SENT_WHEREIN_CHUNK_SIZE = 200;
 
     public int $tries = 10;
+
     public int $timeout = 3600;
 
     public function __construct(
         private readonly string $action,
-        private readonly array  $params = []
+        private readonly array $params = []
     ) {}
 
     public function handle(): void
@@ -118,7 +132,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
 
         SystemNotification::create([
             'title' => 'Ошибка обновления цен',
-            'message' => "Джоба завершилась с ошибкой после попытки {$currentAttempt}/{$maxAttempts}: " . $exception->getMessage(),
+            'message' => "Джоба завершилась с ошибкой после попытки {$currentAttempt}/{$maxAttempts}: ".$exception->getMessage(),
             'level' => 'error',
             'source' => 'wb_update_price_job',
             'meta' => [
@@ -136,14 +150,16 @@ class WbJob implements ShouldBeUnique, ShouldQueue
     {
         // Нормализуем входной payload (новые + legacy-поля), чтобы не ломать старые вызовы.
         $context = $this->buildCardListContext($params);
-        if (!$context) {
+        if (! $context) {
             echo 'error seller_id is null';
+
             return;
         }
 
         $seller = Sellers::find($context->sellerId);
-        if (!$seller) {
+        if (! $seller) {
             Log::warning('WbJob getCardList skipped: seller not found', ['params' => $params]);
+
             return;
         }
 
@@ -153,7 +169,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         $cursorData = $result['data']['cursor'] ?? [];
         $cursor = $cursorData['nmID'] ?? null;
         $updatedAt = $cursorData['updatedAt'] ?? null;
-        $total = (int)($cursorData['total'] ?? 0);
+        $total = (int) ($cursorData['total'] ?? 0);
 
         if ($this->shouldAccumulateWbNmIdsForOrphans($params, $context)) {
             $seen = $params['wb_nm_ids_seen'] ?? [];
@@ -774,9 +790,9 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         $chunks = array_chunk($vendorCodes, self::STOCK_CHUNK_SIZE);
         $result = [];
         $total = count($chunks);
-        echo "Очередь на запрос из " . $total . " пачек\n";
+        echo 'Очередь на запрос из '.$total." пачек\n";
         foreach ($chunks as $chunk) {
-            echo "Осталось " . ($total--) . " пачек\n";
+            echo 'Осталось '.($total--)." пачек\n";
             $vendorCodeString = implode(';', $chunk);
             $stocks = WBContent::getAmounts($vendorCodeString);
             if ($stocks === false) {
@@ -968,33 +984,36 @@ class WbJob implements ShouldBeUnique, ShouldQueue
     private function uploadPhotos(array $params): void
     {
         $payload = $this->buildPhotoUploadPayload($params);
-        if (!$payload) {
+        if (! $payload) {
             Log::warning('WbJob uploadPhotos skipped: invalid payload', ['params' => $params]);
+
             return;
         }
 
         $seller = Sellers::find($payload->sellerId);
-        if (!$seller) {
+        if (! $seller) {
             Log::warning('WbJob uploadPhotos skipped: seller not found', ['params' => $params]);
+
             return;
         }
 
         $service = new WildberriesService($seller->wb_api_key, []);
         $basket = Helper::getBasketNumber($payload->supplierId);
         $info = WBContent::getCardInfo($payload->supplierId);
-        $photoCount = (int)($info['media']['photo_count'] ?? 0);
+        $photoCount = (int) ($info['media']['photo_count'] ?? 0);
         if ($photoCount <= 0) {
             Log::warning('WbJob uploadPhotos skipped: source has no photos', [
                 'sourceSupplierId' => $payload->supplierId,
                 'nmID' => $payload->nmId,
             ]);
+
             return;
         }
 
         $data = [];
         for ($i = 1; $i <= $photoCount; $i++) {
             $data[] = "https://basket-{$basket['basket']}.wbbasket.ru/vol{$basket['small']}"
-                . "/part{$basket['mid']}/{$payload->supplierId}/images/big/{$i}.webp";
+                ."/part{$basket['mid']}/{$payload->supplierId}/images/big/{$i}.webp";
         }
 
         $data = $this->filterReachableBasketImageUrls($data);
@@ -1011,8 +1030,8 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         $service->uploadPhotos($payload->nmId, $data);
 
         // Только для ручного обновления: сразу сохраняем первую ссылку на фото в cards.photo.
-        if (!empty($params['manual_photo_refresh']) && !empty($data[0])) {
-            $cardId = (int)($params['card_id'] ?? 0);
+        if (! empty($params['manual_photo_refresh']) && ! empty($data[0])) {
+            $cardId = (int) ($params['card_id'] ?? 0);
             $cardQuery = CardsModel::query()
                 ->where('sellerID', $payload->sellerId)
                 ->where('nmID', $payload->nmId);
@@ -1021,7 +1040,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             }
             $card = $cardQuery->first();
             if ($card) {
-                $card->photo = (string)$data[0];
+                $card->photo = (string) $data[0];
                 $card->save();
             }
         }
@@ -1032,15 +1051,14 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         Sellers $seller,
         int|string|null $sourceSku = null,
         int|string|null $queueWbSku = null
-    ): void
-    {
+    ): void {
         foreach ($cardsData as $card) {
             $photo = '';
             if (isset($card['photos']) && count($card['photos']) > 0) {
                 $photo = $card['photos'][0]['c246x328'];
             }
 
-            $supplierVendorCode = (string)($card['vendorCode'] ?? '');
+            $supplierVendorCode = (string) ($card['vendorCode'] ?? '');
             if ($supplierVendorCode === '') {
                 continue;
             }
@@ -1117,7 +1135,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         ])->onQueue(self::QUEUE_UPDATE_CARDS_PROCESS);
 
         if (! $manualPhotoRefresh) {
-            (new CardSyncScheduler())->dispatchFollowUpCardFetch(
+            (new CardSyncScheduler)->dispatchFollowUpCardFetch(
                 $sellerId,
                 $sourceSku,
                 $queueWbSku,
@@ -1132,8 +1150,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         string $supplierVendorCode,
         int|string|null $sourceSku = null,
         int|string|null $queueWbSku = null
-    ): int
-    {
+    ): int {
         $supplierCode = strtoupper($supplierVendorCode[0] ?? '');
 
         // Для Sima-Land в clone-потоке приоритет у queueWbSku, затем wbSku из SkuMapping, затем sourceSku.
@@ -1156,22 +1173,24 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             if (! empty($sourceSku)) {
                 return (int) $sourceSku;
             }
+
             return (int) Helper::getVendorCode($supplierVendorCode);
         }
 
         // Для WB пытаемся взять SKU из vendorCode.
         if ($supplierCode === 'W') {
-            $vendorSku = (int)Helper::getVendorCode($supplierVendorCode);
+            $vendorSku = (int) Helper::getVendorCode($supplierVendorCode);
             if ($vendorSku > 0) {
                 return $vendorSku;
             }
         }
 
         // Fallback для legacy-вызовов.
-        if (!empty($sourceSku)) {
-            return (int)$sourceSku;
+        if (! empty($sourceSku)) {
+            return (int) $sourceSku;
         }
-        return (int)$queueWbSku;
+
+        return (int) $queueWbSku;
     }
 
     private function updatePrice(): void
@@ -1181,9 +1200,13 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         $maxAttempts = $this->tries();
         $this->notifyPriceUpdateStarted($startedAt, $currentAttempt, $maxAttempts);
 
-        $skuMappings = SkuMapping::with('card')
+        $priceUpdateQueueQuery = SkuMapping::query()
             ->where('needUpdatePrice', 1)
-            ->get();
+            ->where(function ($q) {
+                $q->where('blocked', false)->orWhereNull('blocked');
+            });
+
+        $skuMappings = (clone $priceUpdateQueueQuery)->with('card')->get();
 
         $groupedBySeller = [];
         $processedBatches = 0;
@@ -1205,14 +1228,15 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                     ],
                 ];
             } catch (\Exception $e) {
-                echo '🚨 Ошибка при подготовке цены: ' . $e->getMessage() . "\r\n";
+                echo '🚨 Ошибка при подготовке цены: '.$e->getMessage()."\r\n";
             }
         }
 
         foreach ($groupedBySeller as $sellerId => $items) {
             $seller = Sellers::find($sellerId);
-            if (!$seller) {
+            if (! $seller) {
                 echo "🚨 Продавец {$sellerId} не найден, пропуск группы\n";
+
                 continue;
             }
 
@@ -1238,14 +1262,14 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                             ->update(['needUpdatePrice' => 0]);
                     } else {
                         throw new RuntimeException(
-                            "Не удалось отправить пачку " . ($index + 1) . " из {$totalChunks} для seller {$sellerId}"
+                            'Не удалось отправить пачку '.($index + 1)." из {$totalChunks} для seller {$sellerId}"
                         );
                     }
                 } catch (ConnectionException $e) {
-                    echo "🚨 Сетевая ошибка отправки пачки " . ($index + 1) . " из {$totalChunks} для seller {$sellerId}: {$e->getMessage()}\r\n";
+                    echo '🚨 Сетевая ошибка отправки пачки '.($index + 1)." из {$totalChunks} для seller {$sellerId}: {$e->getMessage()}\r\n";
                     throw $e;
                 } catch (\Exception $e) {
-                    echo "🚨 Ошибка отправки пачки " . ($index + 1) . " из {$totalChunks} для seller {$sellerId}: {$e->getMessage()}\r\n";
+                    echo '🚨 Ошибка отправки пачки '.($index + 1)." из {$totalChunks} для seller {$sellerId}: {$e->getMessage()}\r\n";
                     throw $e;
                 }
 
@@ -1254,11 +1278,11 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         }
 
         if ($reachedBatchLimit) {
-            $remainingCount = SkuMapping::where('needUpdatePrice', 1)->count();
+            $remainingCount = (clone $priceUpdateQueueQuery)->count();
             echo "ℹ️ Осталось цен к обновлению: {$remainingCount}\n";
         }
 
-        $remainingCount = SkuMapping::where('needUpdatePrice', 1)->count();
+        $remainingCount = (clone $priceUpdateQueueQuery)->count();
         $processedCount = max(0, $skuMappings->count() - $remainingCount);
         $this->notifyPriceUpdateFinished(
             $startedAt,
@@ -1279,21 +1303,21 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         $sellPrice = $this->calculateSellPrice($skuMapping);
 
         $card = $skuMapping->card;
-        if (!$card) {
+        if (! $card) {
             throw new RuntimeException('Не удалось получить карточку для skuMapping');
         }
 
         $sellerId = $card->sellerID;
         $nmID = $card->nmID;
-        if (!$sellerId || !$nmID) {
+        if (! $sellerId || ! $nmID) {
             throw new RuntimeException('Не удалось получить sellerID или nmID');
         }
 
         return new PriceUpdatePayload(
-            sellerId: (int)$sellerId,
-            nmId: (int)$nmID,
+            sellerId: (int) $sellerId,
+            nmId: (int) $nmID,
             price: $sellPrice,
-            mappingId: (int)$skuMapping->id,
+            mappingId: (int) $skuMapping->id,
         );
     }
 
@@ -1301,10 +1325,10 @@ class WbJob implements ShouldBeUnique, ShouldQueue
     {
         $calculatedPrice = $skuMapping->total_cost - ($skuMapping->total_cost * self::PRICE_MARGIN);
         if ($calculatedPrice < $skuMapping->wbPrice) {
-            return (int)ceil($skuMapping->wbPrice + ($skuMapping->wbPrice * self::PRICE_MARGIN));
+            return (int) ceil($skuMapping->wbPrice + ($skuMapping->wbPrice * self::PRICE_MARGIN));
         }
 
-        return (int)ceil($skuMapping->total_cost);
+        return (int) ceil($skuMapping->total_cost);
     }
 
     private function notifyPriceUpdateStarted(Carbon $startedAt, int $currentAttempt, int $maxAttempts): void
@@ -1353,7 +1377,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
 
     private function buildCardListContext(array $params): ?CardListContext
     {
-        $sellerId = (int)($params['seller_id'] ?? 0);
+        $sellerId = (int) ($params['seller_id'] ?? 0);
         if ($sellerId <= 0) {
             return null;
         }
@@ -1363,7 +1387,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         // - nmID -> queueWbSku
         $sourceSku = $params['sourceSku'] ?? ($params['sku'] ?? null);
         $queueWbSku = $params['queueWbSku'] ?? ($params['nmID'] ?? null);
-        $settings = (array)($params['settings'] ?? []);
+        $settings = (array) ($params['settings'] ?? []);
 
         return new CardListContext(
             sellerId: $sellerId,
@@ -1375,9 +1399,9 @@ class WbJob implements ShouldBeUnique, ShouldQueue
 
     private function buildPhotoUploadPayload(array $params): ?PhotoUploadPayload
     {
-        $sellerId = (int)($params['seller_id'] ?? 0);
-        $nmId = (int)($params['nmID'] ?? 0);
-        $supplierId = (int)($params['supplierID'] ?? 0);
+        $sellerId = (int) ($params['seller_id'] ?? 0);
+        $nmId = (int) ($params['nmID'] ?? 0);
+        $supplierId = (int) ($params['supplierID'] ?? 0);
         if ($sellerId <= 0 || $nmId <= 0 || $supplierId <= 0) {
             return null;
         }

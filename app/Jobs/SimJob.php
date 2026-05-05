@@ -90,6 +90,24 @@ class SimJob implements ShouldQueue
                 throw $e;
             }
 
+            if ($e->getMessage() === 'Amount is null') {
+                $sid = (string) ($params['sid'] ?? '');
+                if ($sid !== '') {
+                    SkuMapping::query()
+                        ->where('origSku', $sid)
+                        ->update([
+                            'blocked' => true,
+                            'needUpdatePrice' => false,
+                        ]);
+                    echo "🛑 origSku {$sid}: нет остатка на Sima-Land — skuMapping заблокирован, пересчёт цен отключён\n";
+                }
+
+                return [
+                    'blocked' => true,
+                    'reason' => 'Amount is null',
+                ];
+            }
+
             return $this->handleError($e);
         }
         echo "🎉 Все операции выполнены успешно\n";

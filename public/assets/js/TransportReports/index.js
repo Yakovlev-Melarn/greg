@@ -382,9 +382,10 @@ $form.on('submit', function (e) {
         report_date: $('#reportDate').val(),
         work_hours: wh.decimal,
         extra_work_hours: eh.decimal,
-        night_loading: $reportNightLoading.is(':checked'),
+        // 1/0 for Laravel boolean rule: urlencoded "true"/"false" strings are rejected
+        night_loading: $reportNightLoading.is(':checked') ? 1 : 0,
         night_loading_amount: $reportNightLoading.is(':checked') ? numOrNull($reportNightAmount) : null,
-        manual_floor_lift: $reportManualLift.is(':checked'),
+        manual_floor_lift: $reportManualLift.is(':checked') ? 1 : 0,
         manual_floor_lift_amount: $reportManualLift.is(':checked') ? numOrNull($reportManualAmount) : null,
         route_sheet_total: numOrNull($('#reportRouteTotal'))
     };
