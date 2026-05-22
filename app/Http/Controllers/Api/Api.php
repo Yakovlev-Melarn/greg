@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\SkuMapping as SkuMappingApi;
 use App\Http\Controllers\Api\Suppliers as SuppliersAlias;
 use App\Http\Controllers\Api\SystemNotifications as SystemNotificationsApi;
 use App\Http\Controllers\Api\TransportCompanies as TransportCompaniesAlias;
+use App\Http\Controllers\Api\TransportFinance as TransportFinanceAlias;
 use Illuminate\Http\Request;
 
 class Api
@@ -31,6 +32,7 @@ class Api
         'driver-daily-reports' => DriverDailyReportsAlias::class,
         'driver-adjustments' => DriverAdjustmentsAlias::class,
         'transport-companies' => TransportCompaniesAlias::class,
+        'transport-finance' => TransportFinanceAlias::class,
     ];
 
     public function index(string $entity, string $method, Request $request): mixed

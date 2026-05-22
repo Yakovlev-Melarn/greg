@@ -32,3 +32,4 @@ Thumbs.db
 
 # PHP tooling
 .php-cs-fixer.cache
+/crypto-backtest

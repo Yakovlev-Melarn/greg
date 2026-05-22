@@ -30,6 +30,7 @@ class Helper
             array_values(static::$map),
             $string
         );
+
         return Str::slug($transliterated, '-');
     }
 
@@ -37,13 +38,14 @@ class Helper
     {
         $url = explode('/', $url);
         $url = end($url);
+
         return strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '', $url)));
     }
 
     public static function getBasketNumber($nmId): array
     {
-        $mid = (int)($nmId / 1000);
-        $small = (int)($mid / 100);
+        $mid = (int) ($nmId / 1000);
+        $small = (int) ($mid / 100);
         if ($small < 144) {
             $basket = '01';
         } elseif ($small < 288) {
@@ -127,10 +129,11 @@ class Helper
         } else {
             $basket = '41';
         }
+
         return [
             'basket' => $basket,
             'mid' => $mid,
-            'small' => $small
+            'small' => $small,
         ];
     }
 
@@ -142,6 +145,7 @@ class Helper
         if (str_starts_with($vendorCode, 'S')) {
             return 20;
         }
+
         return 0;
     }
 
@@ -153,13 +157,15 @@ class Helper
         if (str_starts_with($vendorCode, 'S')) {
             return 'Sima-Land';
         }
+
         return 'TopGiper';
     }
 
     public static function getVendorCode(string $vendorCode): string
     {
         $vc = explode('-', $vendorCode);
-        return $vc[2];
+
+        return isset($vc[2]) ? (string) $vc[2] : '';
     }
 
     public static function prettyPrintArray($array, $level = 0): string
@@ -168,30 +174,30 @@ class Helper
         $output = '';
         if ($level === 0) {
             $output .= "Array\n";
-            $output .= str_repeat('-', 40) . "\n"; // разделитель в начале
+            $output .= str_repeat('-', 40)."\n"; // разделитель в начале
         }
-        $output .= $indent . "[\n";
+        $output .= $indent."[\n";
         foreach ($array as $key => $value) {
             $keyDisplay = is_numeric($key) ? $key : "\"$key\"";
             if (is_array($value)) {
-                $output .= $indent . "    {$keyDisplay} => array (\n";
+                $output .= $indent."    {$keyDisplay} => array (\n";
                 $output .= self::prettyPrintArray($value, $level + 1);
-                $output .= $indent . "    )\n";
+                $output .= $indent."    )\n";
             } elseif (is_string($value)) {
-                $output .= $indent . "    {$keyDisplay} => \"{$value}\"\n";
+                $output .= $indent."    {$keyDisplay} => \"{$value}\"\n";
             } elseif (is_numeric($value)) {
-                $output .= $indent . "    {$keyDisplay} => {$value}\n";
+                $output .= $indent."    {$keyDisplay} => {$value}\n";
             } elseif (is_bool($value)) {
-                $output .= $indent . "    {$keyDisplay} => " . ($value ? 'true' : 'false') . "\n";
+                $output .= $indent."    {$keyDisplay} => ".($value ? 'true' : 'false')."\n";
             } else {
-                $output .= $indent . "    {$keyDisplay} => " . gettype($value) . "\n";
+                $output .= $indent."    {$keyDisplay} => ".gettype($value)."\n";
             }
         }
-        $output .= $indent . "]\n";
+        $output .= $indent."]\n";
         if ($level === 0) {
-            $output .= str_repeat('-', 40) . "\n"; // разделитель в конце
+            $output .= str_repeat('-', 40)."\n"; // разделитель в конце
         }
+
         return $output;
     }
-
 }

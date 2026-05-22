@@ -29,5 +29,8 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <!-- WB delete/trash: в тестах почти нулевой интервал между запросами (иначе сотни мс на Http::fake) -->
+        <env name="WB_TRASH_RATELIMIT_REQUESTS" value="60000"/>
+        <env name="WB_TRASH_RATELIMIT_PERIOD_SECONDS" value="1"/>
     </php>
 </phpunit>

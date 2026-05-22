@@ -25,7 +25,15 @@ class Cards extends Model
         'chrtID',
         'photo',
         'sku',
+        'orphan_for_clone',
+        'wb_created_at',
     ];
+
+    protected $casts = [
+        'orphan_for_clone' => 'boolean',
+        'wb_created_at' => 'datetime',
+    ];
+
     public function seller(): BelongsTo
     {
         return $this->belongsTo(Sellers::class, 'sellerID', 'id');

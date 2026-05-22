@@ -15,10 +15,15 @@ const $reportManualLift = $('#reportManualLift');
 const $reportManualAmount = $('#reportManualAmount');
 const $reportVehicleId = $('#reportVehicleId');
 const $deleteReportBtn = $('#deleteReportBtn');
+const $financeLoading = $('#financeLoading');
+const $financeDriversPayrollBtn = $('#financeDriversPayrollBtn');
 
 const state = {
     reports: [],
     drivers: [],
+    vehicles: [],
+    /** @type {object|null} weekly finance summary from API */
+    finance: null,
     /** @type {Date|null} Monday 00:00 local of selected ISO week */
     selectedWeekMonday: null
 };
@@ -209,6 +214,246 @@ function shiftSelectedWeek(deltaWeeks) {
     });
 }
 
+/** Selected week's Monday (local) strictly after today → future week */
+function isSelectedWeekFuture() {
+    if (!state.selectedWeekMonday) {
+        return false;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const mon = new Date(state.selectedWeekMonday);
+    mon.setHours(0, 0, 0, 0);
+    return mon > today;
+}
+
+function clearFinancePanel() {
+    state.finance = null;
+    $('#financeRouteTotal').text('—');
+    $('#financeDriversPayroll').text('—');
+    $('#financeLogisticianAmount').text('—').removeAttr('title');
+    $('#financeLogisticianHint').addClass('d-none').text('');
+    $('#financePayLogisticianBtn, #financeUnpayLogisticianBtn').addClass('d-none').prop('disabled', false);
+    $('#financeAfterPayroll').text('—').removeClass('is-negative is-positive');
+    $('#financeVehicleExpenses').text('—');
+    $('#financeVehicleExpensesHint').text('');
+    $('#financeNetProfit').text('—').removeClass('is-negative is-positive');
+    $financeDriversPayrollBtn.prop('disabled', true);
+}
+
+function renderFinance(data) {
+    if (!data) {
+        clearFinancePanel();
+        return;
+    }
+
+    const future = isSelectedWeekFuture();
+
+    $('#financeRouteTotal').text(formatMoney(data.route_sheets_total));
+    $('#financeDriversPayroll').text(formatMoney(data.drivers_payroll));
+    $financeDriversPayrollBtn.prop('disabled', future || !data.drivers || data.drivers.length === 0);
+
+    const log = data.logistician_payroll || {};
+    $('#financeLogisticianAmount').text(formatMoney(log.amount)).attr(
+        'title',
+        log.inactive_reason === 'before_start_date' && log.payout_start_date
+            ? `Начисляется с ${formatRuDate(log.payout_start_date)}`
+            : ''
+    );
+    const $hint = $('#financeLogisticianHint');
+    const $payLog = $('#financePayLogisticianBtn');
+    const $unpayLog = $('#financeUnpayLogisticianBtn');
+    $payLog.addClass('d-none');
+    $unpayLog.addClass('d-none');
+    $hint.addClass('d-none').text('');
+
+    if (log.inactive_reason === 'no_active_logistician') {
+        $hint.removeClass('d-none').text('Нет активного логиста в справочнике.');
+    } else if (log.inactive_reason === 'before_start_date' && log.payout_start_date) {
+        $hint.removeClass('d-none').text(`Начисляется с ${formatRuDate(log.payout_start_date)}`);
+    } else if (Number(log.carry_over) > 0) {
+        $hint.removeClass('d-none').text(`Долг с прошлых недель: ${formatMoney(log.carry_over)}`);
+    }
+
+    if (!future && log.id && Number(log.amount) > 0) {
+        if (log.is_paid) {
+            $unpayLog.removeClass('d-none').prop('disabled', false);
+        } else {
+            $payLog.removeClass('d-none').prop('disabled', false);
+        }
+    }
+
+    const after = data.after_payroll;
+    const $after = $('#financeAfterPayroll');
+    $after.text(formatMoney(after));
+    $after.removeClass('is-negative is-positive');
+    if (typeof after === 'number' && !Number.isNaN(after)) {
+        if (after < 0) {
+            $after.addClass('is-negative');
+        } else if (after > 0) {
+            $after.addClass('is-positive');
+        }
+    }
+
+    const br = data.vehicle_expenses_breakdown || {};
+    $('#financeVehicleExpenses').text(formatMoney(data.vehicle_expenses_total));
+    $('#financeVehicleExpensesHint').text(
+        `Ручные: ${formatMoney(br.manual)} · Аренда по сменам: ${formatMoney(br.rent)}`
+    );
+
+    const net = data.net_profit;
+    const $net = $('#financeNetProfit');
+    $net.text(formatMoney(net));
+    $net.removeClass('is-negative is-positive');
+    if (typeof net === 'number' && !Number.isNaN(net)) {
+        if (net < 0) {
+            $net.addClass('is-negative');
+        } else if (net > 0) {
+            $net.addClass('is-positive');
+        }
+    }
+
+    if (future) {
+        $payLog.addClass('d-none');
+        $unpayLog.addClass('d-none');
+        $financeDriversPayrollBtn.prop('disabled', true);
+    }
+}
+
+function formatRuDate(ymd) {
+    if (!ymd || typeof ymd !== 'string') {
+        return '';
+    }
+    const p = ymd.split('-');
+    if (p.length !== 3) {
+        return ymd;
+    }
+    return `${p[2]}.${p[1]}.${p[0]}`;
+}
+
+function loadFinance() {
+    const weekMonday = $filterWeekMonday.val();
+    if (!weekMonday) {
+        clearFinancePanel();
+        return $.Deferred().resolve().promise();
+    }
+    $financeLoading.removeClass('d-none');
+    return $.post({
+        url: '/api/transport-finance/weeklySummary',
+        data: { week_monday: weekMonday },
+        global: false
+    })
+        .done(function (data) {
+            state.finance = data;
+            renderFinance(data);
+        })
+        .fail(function (xhr) {
+            state.finance = null;
+            clearFinancePanel();
+            showAlert(handleAjaxError(xhr), 'error');
+        })
+        .always(function () {
+            $financeLoading.addClass('d-none');
+        });
+}
+
+function renderDriverPayoutsTable() {
+    const $tb = $('#driverPayoutsTableBody');
+    const $empty = $('#driverPayoutsEmpty');
+    $tb.empty();
+    const drivers = (state.finance && state.finance.drivers) || [];
+    const future = isSelectedWeekFuture();
+
+    if (!drivers.length) {
+        $empty.removeClass('d-none');
+        return;
+    }
+    $empty.addClass('d-none');
+
+    drivers.forEach(function (d) {
+        const payable = Number(d.payable);
+        const canPay = !future && !d.is_paid && payable > 0;
+        const actionHtml = d.is_paid
+            ? `<div class="d-flex flex-column align-items-center transport-finance-driver-action-stack">
+                    <span class="badge badge-success transport-finance-paid-badge"><i class="mdi mdi-check-bold mr-1"></i>Оплачено</span>
+                    <button type="button" class="btn btn-link btn-sm p-0 mt-1 js-unpay-driver text-muted" data-driver-id="${d.id}">Отменить выплату</button>
+               </div>`
+            : `<button type="button" class="btn btn-sm btn-primary js-pay-driver" data-driver-id="${d.id}" ${canPay ? '' : 'disabled'}>Выплатить</button>`;
+
+        const carryHint = Number(d.carry_over) > 0
+            ? `<div class="transport-finance-carry-hint">долг с прошлых недель: ${formatMoney(d.carry_over)}</div>`
+            : '';
+        $tb.append(`
+            <tr data-driver-id="${d.id}">
+                <td>
+                    <button type="button" class="btn btn-link p-0 font-weight-semibold text-left js-open-driver-days" data-driver-id="${d.id}">
+                        <i class="mdi mdi-calendar-text text-primary mr-1"></i>${escapeHtml(d.name)}
+                    </button>
+                </td>
+                <td class="text-right text-route">${formatMoney(d.route_total)}</td>
+                <td class="text-right text-accrual">${formatMoney(d.accrual)}</td>
+                <td class="text-right text-success">${formatMoney(d.bonus)}</td>
+                <td class="text-right text-danger">${formatMoney(d.penalty)}</td>
+                <td class="text-right font-weight-bold">${formatMoney(d.payable)}${carryHint}</td>
+                <td class="text-center">${actionHtml}</td>
+            </tr>
+        `);
+    });
+}
+
+function openDriverPayoutsModal() {
+    renderDriverPayoutsTable();
+    $('#driverPayoutsModal').modal('show');
+}
+
+function openDriverDayBreakdownModal(driverId) {
+    const weekMonday = $filterWeekMonday.val();
+    if (!weekMonday) {
+        return;
+    }
+    const driver = (state.finance && state.finance.drivers || []).find(function (x) { return Number(x.id) === Number(driverId); });
+    $('#driverDayBreakdownTitle').text(driver ? `По дням: ${driver.name}` : 'По дням');
+    $('#driverDayBreakdownLoading').removeClass('d-none');
+    $('#driverDayBreakdownWrap').addClass('d-none');
+    $('#driverDayBreakdownModal').modal('show');
+
+    $.post({
+        url: '/api/transport-finance/driverDayBreakdown',
+        data: { week_monday: weekMonday, driver_id: driverId },
+        global: false
+    })
+        .done(function (data) {
+            const $body = $('#driverDayBreakdownBody');
+            $body.empty();
+            (data.days || []).forEach(function (day) {
+                const net = Number(day.net);
+                let netClass = '';
+                if (net > 0) {
+                    netClass = 'text-success';
+                } else if (net < 0) {
+                    netClass = 'text-danger';
+                }
+                $body.append(`
+                    <tr>
+                        <td><span class="font-weight-medium">${escapeHtml(day.weekday)}</span> <span class="text-muted small">${escapeHtml(day.date)}</span></td>
+                        <td class="text-right text-route">${formatMoney(day.route_total)}</td>
+                        <td class="text-right text-accrual">${formatMoney(day.accrual)}</td>
+                        <td class="text-right text-success">${formatMoney(day.bonus)}</td>
+                        <td class="text-right text-danger">${formatMoney(day.penalty)}</td>
+                        <td class="text-right font-weight-bold ${netClass}">${formatMoney(day.net)}</td>
+                    </tr>
+                `);
+            });
+            $('#driverDayBreakdownWrap').removeClass('d-none');
+        })
+        .fail(function (xhr) {
+            showAlert(handleAjaxError(xhr), 'error');
+            $('#driverDayBreakdownWrap').addClass('d-none');
+        })
+        .always(function () {
+            $('#driverDayBreakdownLoading').addClass('d-none');
+        });
+}
+
 function renderDriverOptions($select, selectedId) {
     const val = selectedId != null && selectedId !== '' ? String(selectedId) : '';
     const isFilter = $select.attr('id') === 'filterDriverId';
@@ -226,16 +471,11 @@ function renderDriverOptions($select, selectedId) {
 }
 
 function renderVehicleOptions(selectedVehicleId, fallbackDriverId) {
-    const vehicleMap = new Map();
-    state.drivers.forEach(function (d) {
-        if (d.fleet_vehicle_id && d.vehicle_label) {
-            vehicleMap.set(String(d.fleet_vehicle_id), d.vehicle_label);
-        }
-    });
-
     $reportVehicleId.html('<option value="">Без автомобиля</option>');
-    Array.from(vehicleMap.entries()).forEach(function ([id, label]) {
-        $reportVehicleId.append(`<option value="${id}">${escapeHtml(label)}</option>`);
+    state.vehicles.forEach(function (v) {
+        const suffix = v.ownership_type === 'rented' ? ' [аренда]' : '';
+        const label = `${v.brand} ${v.model} (${v.plate_number})${suffix}`;
+        $reportVehicleId.append(`<option value="${v.id}">${escapeHtml(label)}</option>`);
     });
 
     let selected = selectedVehicleId;
@@ -328,12 +568,20 @@ function loadDrivers() {
         });
 }
 
+function loadVehicles() {
+    return $.post('/api/fleet/list')
+        .done(function (data) {
+            state.vehicles = data || [];
+            renderVehicleOptions($reportVehicleId.val(), $reportDriverId.val());
+        });
+}
+
 function loadReports() {
     const weekMonday = $filterWeekMonday.val();
     if (!weekMonday) {
         state.reports = [];
         renderReports();
-        return $.Deferred().resolve().promise();
+        return loadFinance();
     }
     const payload = {
         week_monday: weekMonday,
@@ -343,10 +591,14 @@ function loadReports() {
         url: '/api/driver-daily-reports/list',
         data: payload,
         global: false
-    }).done(function (data) {
-        state.reports = data;
-        renderReports();
-    });
+    })
+        .done(function (data) {
+            state.reports = data;
+            renderReports();
+        })
+        .always(function () {
+            loadFinance();
+        });
 }
 
 function resetReportForm() {
@@ -479,11 +731,102 @@ $filterDriver.on('change', function () {
     });
 });
 
+$financeDriversPayrollBtn.on('click', function () {
+    if ($(this).prop('disabled')) {
+        return;
+    }
+    openDriverPayoutsModal();
+});
+
+$('#financePayLogisticianBtn').on('click', function () {
+    const weekMonday = $filterWeekMonday.val();
+    if (!weekMonday || isSelectedWeekFuture()) {
+        return;
+    }
+    $.post('/api/transport-finance/payLogistician', { week_monday: weekMonday })
+        .done(function () {
+            loadFinance().done(function () {
+                showAlert('Выплата логисту проведена');
+                renderDriverPayoutsTable();
+            });
+        })
+        .fail(function (xhr) {
+            showAlert(handleAjaxError(xhr), 'error');
+        });
+});
+
+$('#financeUnpayLogisticianBtn').on('click', function () {
+    if (!confirm('Отменить выплату логисту за эту неделю?')) {
+        return;
+    }
+    const weekMonday = $filterWeekMonday.val();
+    if (!weekMonday) {
+        return;
+    }
+    $.post('/api/transport-finance/unpayLogistician', { week_monday: weekMonday })
+        .done(function () {
+            loadFinance().done(function () {
+                showAlert('Выплата логисту отменена');
+                renderDriverPayoutsTable();
+            });
+        })
+        .fail(function (xhr) {
+            showAlert(handleAjaxError(xhr), 'error');
+        });
+});
+
+$(document).on('click', '.js-open-driver-days', function () {
+    openDriverDayBreakdownModal(Number($(this).data('driver-id')));
+});
+
+$(document).on('click', '.js-pay-driver', function () {
+    const driverId = Number($(this).data('driver-id'));
+    const weekMonday = $filterWeekMonday.val();
+    if (!driverId || !weekMonday) {
+        return;
+    }
+    $.post('/api/transport-finance/payDriver', { driver_id: driverId, week_monday: weekMonday })
+        .done(function () {
+            loadFinance().done(function () {
+                showAlert('Выплата водителю проведена');
+                renderDriverPayoutsTable();
+            });
+        })
+        .fail(function (xhr) {
+            showAlert(handleAjaxError(xhr), 'error');
+        });
+});
+
+$(document).on('click', '.js-unpay-driver', function () {
+    if (
+        !confirm(
+            'Отменить выплату водителю за эту неделю? Удержания по штрафам с датой части в этой неделе снова станут неприменёнными.'
+        )
+    ) {
+        return;
+    }
+    const driverId = Number($(this).data('driver-id'));
+    const weekMonday = $filterWeekMonday.val();
+    if (!driverId || !weekMonday) {
+        return;
+    }
+    $.post('/api/transport-finance/unpayDriver', { driver_id: driverId, week_monday: weekMonday })
+        .done(function () {
+            loadFinance().done(function () {
+                showAlert('Выплата водителя отменена');
+                renderDriverPayoutsTable();
+            });
+        })
+        .fail(function (xhr) {
+            showAlert(handleAjaxError(xhr), 'error');
+        });
+});
+
 (function initWeek() {
     setSelectedWeekMonday(getDefaultWeekMonday());
 })();
 
-$.when(loadDrivers()).done(function () {
+$.when(loadDrivers(), loadVehicles()).done(function () {
     loadReports().fail(function (xhr) {
         showAlert(handleAjaxError(xhr), 'error');
     });

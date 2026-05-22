@@ -11,7 +11,22 @@
                     </div>
                     <div class="card-body">
                         <div class="alert alert-info ui-alert">
-                            Введите Артикул продавца (по одному на строку).
+                            Введите артикул продавца (supplierVendorCode), по одному на строку.
+                        </div>
+                        <div class="form-check mb-3">
+                            <input
+                                type="checkbox"
+                                class="form-check-input"
+                                id="blockedCardsHardDeleteMode"
+                                autocomplete="off"
+                            />
+                            <label class="form-check-label" for="blockedCardsHardDeleteMode">
+                                Жёсткое удаление: корзина WB + полная очистка в БД (карточки, skuMapping, очередь, остатки по chrt)
+                            </label>
+                        </div>
+                        <div class="alert alert-danger d-none mb-3" id="blockedCardsHardDeleteWarning" role="alert">
+                            В жёстком режиме данные удаляются безвозвратно из базы после успешного запроса в корзину Wildberries.
+                            Убедитесь, что список артикулов верный.
                         </div>
                         <form id="blockedCardsForm">
                             @csrf
@@ -26,7 +41,7 @@
                                 ></textarea>
                             </div>
                             <button type="submit" class="btn btn-danger has-icon ui-action-btn" id="quarantineSubmitBtn">
-                                <i class="mdi mdi-block-helper"></i> Поместить в карантин
+                                <i class="mdi mdi-block-helper"></i> <span id="blockedCardsSubmitLabel">Поместить в карантин</span>
                             </button>
                         </form>
                     </div>

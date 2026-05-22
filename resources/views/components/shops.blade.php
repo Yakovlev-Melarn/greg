@@ -39,10 +39,22 @@
                             <tbody>
                             <% if (s.warehouses && s.warehouses.length > 0) { %>
                                 <% _.each(s.warehouses, function (w) { %>
+                                    <%
+                                        var ids = (w.stock_supplier_ids && w.stock_supplier_ids.length) ? w.stock_supplier_ids.slice() : (w.supplier == 20 ? [20] : [10]);
+                                        ids.sort(function(a,b){ return a-b; });
+                                        var via = w.sima_stock_via || 'wb_catalog';
+                                        var routeParts = [];
+                                        if (ids.indexOf(10) >= 0) { routeParts.push('WB'); }
+                                        if (ids.indexOf(20) >= 0) {
+                                            routeParts.push(via === 'sima_api' ? 'Sima API' : 'Sima→WB');
+                                        }
+                                        var routeLabel = routeParts.length ? routeParts.join(' + ') : '—';
+                                        var whStocksJson = JSON.stringify(ids);
+                                    %>
                                     <tr>
                                         <td class="text-nowrap"><%- w.wb_warehouse_id %></td>
                                         <td><%- w.name ? w.name : '—' %></td>
-                                        <td class="small text-muted"><% if (w.supplier == 20) { %>Екатеринбург<% } else { %>Санкт-Петербург<% } %></td>
+                                        <td class="small text-muted"><%- routeLabel %> <span class="text-monospace">(<%- ids.join(',') %>)</span></td>
                                         <td class="small shops-stock-cell">
                                             <span class="text-nowrap"><span class="shops-dot <%- w.stock_collect_enabled ? 'shops-dot--on' : '' %>"></span>сбор</span>
                                             <span class="text-nowrap ml-2"><span class="shops-dot shops-dot--wb <%- w.stock_send_to_wb ? 'shops-dot--on' : '' %>"></span>WB</span>
@@ -52,6 +64,9 @@
                                             <% } %>
                                         </td>
                                         <td class="text-right text-nowrap">
+                                            <button type="button" class="btn btn-sm shops-btn-icon warehouseZeroStocksBtn" data-wh-id="<%- w.id %>" data-seller-id="<%- s.id %>" data-wh-stocks="<%- whStocksJson %>" title="Обнулить остатки в WB">
+                                                <i class="mdi mdi-numeric-0"></i>
+                                            </button>
                                             <button type="button" class="btn btn-sm shops-btn-icon warehouseStockHistoryBtn" data-wh-id="<%- w.id %>" data-seller-id="<%- s.id %>" title="История остатков">
                                                 <i class="mdi mdi-history"></i>
                                             </button>
@@ -118,11 +133,22 @@
                 <label class="form-label small font-weight-bold text-muted text-uppercase mb-1" for="whFormName">Название склада</label>
                 <input type="text" class="form-control" name="name" id="whFormName" maxlength="255" placeholder="Необязательно">
             </div>
-            <div class="mb-3">
-                <label class="form-label small font-weight-bold text-muted text-uppercase mb-1" for="whFormSupplier">Маршрут остатков</label>
-                <select class="form-control" name="supplier" id="whFormSupplier">
-                    <option value="">Санкт-Петербург</option>
-                    <option value="20">Екатеринбург</option>
+            <div class="mb-3" id="whFormStockRouteBlock">
+                <label class="form-label small font-weight-bold text-muted text-uppercase mb-1">Поставщики карточек (маршрут остатков)</label>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input wh-stock-supplier-cb" name="wh_stock_sup_10" id="whSup10" value="10">
+                    <label class="form-check-label" for="whSup10">Каталог WB (supplier 10)</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input wh-stock-supplier-cb" name="wh_stock_sup_20" id="whSup20" value="20">
+                    <label class="form-check-label" for="whSup20">Sima-Land (supplier 20)</label>
+                </div>
+            </div>
+            <div class="mb-3" id="whFormSimaViaBlock" style="display:none;">
+                <label class="form-label small font-weight-bold text-muted text-uppercase mb-1" for="whFormSimaStockVia">Источник остатков Sima-Land</label>
+                <select class="form-control" id="whFormSimaStockVia" name="sima_stock_via">
+                    <option value="sima_api">Sima API</option>
+                    <option value="wb_catalog">Каталог WB</option>
                 </select>
             </div>
             <div class="shops-wh-stock-block mb-3">
@@ -173,5 +199,19 @@
             </table>
         </div>
         <p class="small text-muted mb-0 mt-2" id="whStockHistoryEmpty" style="display:none;">Записей пока нет.</p>
+    </div>
+</script>
+
+<script type="text/template" id="shop-warehouse-zero-stocks-template">
+    <div class="shops-modal-ui">
+        <p class="small text-muted mb-3">Будут отправлены нулевые остатки в Wildberries для карточек выбранных поставщиков на этом складе (по chrtID).</p>
+        <form id="whZeroForm" autocomplete="off">
+            <input type="hidden" id="whZeroWhId" value="">
+            <div class="mb-3" id="whZeroSupplierCbs"></div>
+            <div class="d-flex justify-content-between flex-wrap gap-2 pt-2 shops-form-actions">
+                <button type="button" class="btn btn-light border-0 shops-btn-wide" id="whZeroCancel">Назад</button>
+                <button type="submit" class="btn btn-danger px-4" id="whZeroSubmit">Обнулить в WB</button>
+            </div>
+        </form>
     </div>
 </script>

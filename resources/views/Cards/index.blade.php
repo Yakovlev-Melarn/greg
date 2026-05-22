@@ -6,17 +6,39 @@
         <div class="page-content-wrapper-inner">
             <div class="content-viewport">
                 <div class="glass-panel cards-toolbar">
-                    <div class="cards-toolbar__title">
-                        <h4 class="mb-1">Каталог товаров</h4>
-                        <p class="text-muted mb-0">Список карточек магазина с быстрым просмотром фото и артикулов.</p>
+                    <div class="cards-toolbar__top">
+                        <div class="cards-toolbar__title">
+                            <h4 class="mb-1">Каталог товаров</h4>
+                            <p class="text-muted mb-0">Список карточек магазина с быстрым просмотром фото и артикулов.</p>
+                        </div>
+                        <button
+                            type="button"
+                            class="btn btn-primary has-icon cards-toolbar__action"
+                            id="updateCardProcess"
+                            data-seller="{{ session()->get('seller') }}"
+                        >
+                            <i class="mdi mdi-autorenew"></i> Обновить
+                        </button>
                     </div>
-                    <button
-                        class="btn btn-primary has-icon cards-toolbar__action"
-                        id="updateCardProcess"
-                        data-seller="{{ session()->get('seller') }}"
-                    >
-                        <i class="mdi mdi-autorenew"></i> Обновить
-                    </button>
+                    <div class="cards-toolbar__sync">
+                        <div class="cards-toolbar__sync-head">
+                            <span class="cards-toolbar__sync-title">Выборочная синхронизация с WB</span>
+                            <span class="cards-toolbar__sync-badge">опционально</span>
+                        </div>
+                        <p class="cards-toolbar__sync-lead">
+                            Укажите <code>supplierVendorCode</code> по одному в строке — обновятся только эти позиции.
+                            Поле пустое — полный обход каталога (как раньше).
+                        </p>
+                        <label for="cardsSupplierVendorCodesSync" class="sr-only">Артикулы supplierVendorCode</label>
+                        <textarea
+                            id="cardsSupplierVendorCodesSync"
+                            class="form-control cards-toolbar__codes"
+                            rows="3"
+                            spellcheck="false"
+                            autocomplete="off"
+                            placeholder="Один артикул на строку, например:&#10;LC-S-123456789-1&#10;LC-S-987654321-1"
+                        ></textarea>
+                    </div>
                 </div>
                 <div class="glass-panel cards-filters mt-3">
                     <div class="row">
@@ -49,6 +71,86 @@
                     </div>
                 </div>
 
+                <div class="glass-panel cards-stock-toolbar mt-3" id="cardsStockToolbar">
+                    <div class="cards-stock-toolbar__inner">
+                        <div class="cards-stock-toolbar__hint text-muted small mb-2 mb-md-0">
+                            Галочки: остатки на склад WB. Сироты (клон без привязки) не участвуют в выборе — для них чекбокс отключён.
+                        </div>
+                        <div class="cards-stock-toolbar__controls">
+                            <span class="cards-stock-toolbar__count" id="cardsStockSelectedCount">Выбрано: 0</span>
+                            <div class="cards-stock-toolbar__field">
+                                <label class="sr-only" for="cardsStockWarehouse">Склад</label>
+                                <select class="form-control form-control-sm" id="cardsStockWarehouse" title="Склад WB">
+                                    <option value="">Загрузка складов…</option>
+                                </select>
+                            </div>
+                            <div class="cards-stock-toolbar__field">
+                                <label class="sr-only" for="cardsStockAmount">Остаток</label>
+                                <input type="number" class="form-control form-control-sm" id="cardsStockAmount" min="0" max="100000" value="0" placeholder="Остаток" />
+                            </div>
+                            <button type="button" class="btn btn-primary btn-sm cards-stock-toolbar__submit" id="cardsStockSubmit" disabled>
+                                <i class="mdi mdi-truck-delivery-outline" aria-hidden="true"></i>
+                                Отправить на WB
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="cardsStockClearSelection">
+                                Снять выбор
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel cards-bulk-toolbar mt-3" id="cardsBulkToolbar">
+                    <div class="cards-bulk-toolbar__inner">
+                        <div class="cards-bulk-toolbar__hint text-muted small mb-2 mb-md-0">
+                            Для выбранных (те же галочки): обновить фото, удалить в корзину WB или печать QR-этикеток.
+                        </div>
+                        <div class="cards-bulk-toolbar__controls">
+                            <span class="cards-bulk-toolbar__count text-muted small" id="cardsBulkSelectedHint">Нет выбранных карточек</span>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="cardsBulkPhoto" disabled>
+                                <i class="mdi mdi-cloud-upload-outline" aria-hidden="true"></i>
+                                Фото
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" id="cardsBulkTrash" disabled>
+                                <i class="mdi mdi-delete-outline" aria-hidden="true"></i>
+                                В корзину
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="cardsBulkQrPrint" disabled>
+                                <i class="mdi mdi-printer" aria-hidden="true"></i>
+                                Печать QR
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel cards-qr-generator mt-3" id="cardsQrGenerator">
+                    <div class="cards-qr-generator__head">
+                        <div>
+                            <span class="cards-toolbar__sync-title d-block">Генератор этикеток QR (58×40 мм)</span>
+                            <p class="cards-qr-generator__lead text-muted small mb-0">
+                                Случайные 7 цифр (мелко) и 4 цифры (крупно), как на этикетке WB. Укажите количество — затем печать.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="cards-qr-generator__controls">
+                        <div class="cards-qr-generator__field">
+                            <label class="sr-only" for="cardsQrGeneratorCount">Количество этикеток</label>
+                            <input type="number" class="form-control form-control-sm" id="cardsQrGeneratorCount" min="1" max="100" value="1" title="От 1 до 100" />
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="cardsQrGeneratorGenerate">
+                            <i class="mdi mdi-refresh" aria-hidden="true"></i>
+                            Сгенерировать
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm" id="cardsQrGeneratorPrint" disabled>
+                            <i class="mdi mdi-printer" aria-hidden="true"></i>
+                            Печать
+                        </button>
+                    </div>
+                    <div class="cards-qr-generator__preview d-none" id="cardsQrGeneratorPreview">
+                        <div class="cards-qr-generator__preview-head small text-muted">Текущий набор (данные в QR и штрихкоде — склейка 7+4 цифр):</div>
+                        <ul class="cards-qr-generator__list mb-0" id="cardsQrGeneratorList"></ul>
+                    </div>
+                </div>
+
                 <div class="alert alert-success mt-3 d-none" id="alert"></div>
 
                 <div class="glass-panel cards-content mt-3">
@@ -63,6 +165,10 @@
                         <table class="table table-hover ui-data-table" id="cardsTable">
                             <thead>
                                 <tr>
+                                    <th class="cards-table-col-check text-center">
+                                        <span class="sr-only">Выбор</span>
+                                        <input type="checkbox" class="cards-select-all" id="cardsSelectPage" title="Выбрать все на странице" />
+                                    </th>
                                     <th class="col-priority-1">Товар</th>
                                     <th class="col-priority-2">ID карточки</th>
                                     <th class="col-priority-1">Артикул</th>
@@ -139,5 +245,7 @@
     </div>
 @endsection
 @section('js')
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js" crossorigin="anonymous"></script>
     <script src="{{ asset('assets/js/Cards/index.js') }}"></script>
 @endsection

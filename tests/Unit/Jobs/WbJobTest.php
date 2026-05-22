@@ -121,6 +121,43 @@ class WbJobTest extends TestCase
         $this->assertSame(12624007, $fromMapping);
     }
 
+    #[TestDox('Sima-Land: wbSku из SkuMapping важнее cards.sku, если в sku ошибочно лежит origSku')]
+    public function test_case_04d_mapping_wb_sku_over_queue_when_queue_equals_orig(): void
+    {
+        SkuMapping::forceCreate([
+            'origSku' => '9424526',
+            'wbSku' => '176000001',
+        ]);
+
+        $job = new WbJob('getCardList', []);
+
+        $nm = $this->invokePrivate(
+            $job,
+            'resolvePhotoSourceSupplierId',
+            ['SM-L-9424526-1', '9424526', '9424526']
+        );
+        $this->assertSame(176000001, $nm);
+    }
+
+    #[TestDox('Заблокированный SkuMapping не подставляется как queueWbSku для фото')]
+    public function test_case_04c_blocked_mapping_ignored_for_photo_nm_id(): void
+    {
+        SkuMapping::forceCreate([
+            'origSku' => '8889999',
+            'wbSku' => '12624007',
+            'blocked' => true,
+        ]);
+
+        $job = new WbJob('getCardList', []);
+
+        $fromSourceNotMapping = $this->invokePrivate(
+            $job,
+            'resolvePhotoSourceSupplierId',
+            ['SM-L-8889999-1', '111', null]
+        );
+        $this->assertSame(111, $fromSourceNotMapping);
+    }
+
     #[TestDox('DTO цены формируется корректно по skuMapping')]
     public function test_case_05(): void
     {
@@ -143,6 +180,23 @@ class WbJobTest extends TestCase
         $this->assertSame(7001, $payload->nmId);
         $this->assertSame(150, $payload->price);
         $this->assertSame(15, $payload->mappingId);
+    }
+
+    #[TestDox('mergeWarehouseStockRowsLastWins: последний источник перезаписывает chrtId')]
+    public function test_merge_warehouse_stock_rows_last_wins(): void
+    {
+        $job = new WbJob('collectStocks', []);
+        $merged = $this->invokePrivate($job, 'mergeWarehouseStockRowsLastWins', [
+            [['chrtId' => 1, 'amount' => 2]],
+            [['chrtId' => 1, 'amount' => 3], ['chrtId' => 2, 'amount' => 1]],
+        ]);
+        $this->assertCount(2, $merged);
+        $by = [];
+        foreach ($merged as $r) {
+            $by[(int) $r['chrtId']] = $r['amount'];
+        }
+        $this->assertSame(3, $by[1]);
+        $this->assertSame(1, $by[2]);
     }
 
     #[TestDox('collectStocks имеет стабильный uniqueId по складу (анти-дубликат в очереди)')]

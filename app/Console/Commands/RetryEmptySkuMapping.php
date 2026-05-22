@@ -9,17 +9,20 @@ use Illuminate\Console\Command;
 class RetryEmptySkuMapping extends Command
 {
     protected $signature = 'sku-mapping:retry-empty {--limit=200} {--older-than=10}';
+
     protected $description = 'Requeue calcPrice for sku mappings with purchase_price = null';
 
     public function handle(): int
     {
-        $limit = max((int)$this->option('limit'), 1);
-        $olderThanMinutes = max((int)$this->option('older-than'), 0);
+        $limit = max((int) $this->option('limit'), 1);
+        $olderThanMinutes = max((int) $this->option('older-than'), 0);
         $cutoff = now()->subMinutes($olderThanMinutes);
 
         $rows = SkuMapping::query()
             ->whereNull('purchase_price')
-            ->where('blocked', 0)
+            ->where(function ($q) {
+                $q->where('blocked', false)->orWhereNull('blocked');
+            })
             ->where('created_at', '<=', $cutoff)
             ->orderBy('id')
             ->limit($limit)
@@ -27,6 +30,7 @@ class RetryEmptySkuMapping extends Command
 
         if ($rows->isEmpty()) {
             $this->info('No empty skuMapping rows found for retry.');
+
             return self::SUCCESS;
         }
 
@@ -41,6 +45,7 @@ class RetryEmptySkuMapping extends Command
         }
 
         $this->info("Queued {$queued} calcPrice jobs for empty skuMapping rows.");
+
         return self::SUCCESS;
     }
 }

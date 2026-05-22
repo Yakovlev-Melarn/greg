@@ -10,9 +10,13 @@ use Illuminate\Console\Command;
 class Job extends Command
 {
     protected $signature = 'job:make {method} {param?} {oldPrice?} {newPrice?}';
+
     protected $description = '{method} {nmId|seller?} {oldPrice?} {newPrice?}';
+
     private mixed $param;
+
     private mixed $oldPrice;
+
     private mixed $newPrice;
 
     public function handle()
@@ -26,7 +30,9 @@ class Job extends Command
 
     protected function updatePrice(): void
     {
-        WbJob::dispatch('updatePrice', [])->onQueue('updatePrice');
+        WbJob::dispatch('updatePrice', [
+            'manual_dispatch_token' => str_replace(' ', '', (string) microtime()),
+        ])->onQueue('updatePrice');
     }
 
     protected function updateWbStocks(): void

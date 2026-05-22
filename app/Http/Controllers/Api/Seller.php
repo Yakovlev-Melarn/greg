@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Models\Cards;
 use App\Models\Sellers;
 use App\Models\SellerWarehouse;
 use App\Models\SellerWarehouseStockHistory;
+use App\Services\WildberriesService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
@@ -14,8 +16,16 @@ use Illuminate\Validation\ValidationException;
 class Seller
 {
     /**
-     * Поставщики, для которых можно привязать отдельный склад.
-     * NULL означает «склад по умолчанию для всех остальных».
+     * Поставщики карточек, допустимые в маршруте остатков склада.
+     *
+     * @var list<int>
+     */
+    public const STOCK_ROUTE_SUPPLIERS = [10, 20];
+
+    /**
+     * @deprecated Используйте STOCK_ROUTE_SUPPLIERS; оставлено для Rule::in по legacy полю supplier.
+     *
+     * @var list<int>
      */
     private const ALLOWED_SUPPLIERS = [20];
 
@@ -32,6 +42,8 @@ class Seller
                         'wb_warehouse_id' => $w->wb_warehouse_id,
                         'name' => $w->name,
                         'supplier' => $w->supplier,
+                        'stock_supplier_ids' => $w->effectiveStockSupplierIds(),
+                        'sima_stock_via' => (string) ($w->sima_stock_via ?? SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG),
                         'stock_collect_enabled' => (bool) $w->stock_collect_enabled,
                         'stock_send_to_wb' => (bool) $w->stock_send_to_wb,
                         'stock_frequency_minutes' => (int) ($w->stock_frequency_minutes ?? 30),
@@ -59,26 +71,34 @@ class Seller
             'warehouses.*.wb_warehouse_id' => 'required|integer|min:1',
             'warehouses.*.name' => 'nullable|string|max:255',
             'warehouses.*.supplier' => ['nullable', 'integer', Rule::in(self::ALLOWED_SUPPLIERS)],
+            'warehouses.*.stock_supplier_ids' => 'sometimes|array|min:1',
+            'warehouses.*.stock_supplier_ids.*' => ['integer', Rule::in(self::STOCK_ROUTE_SUPPLIERS)],
+            'warehouses.*.sima_stock_via' => ['sometimes', 'string', Rule::in([SellerWarehouse::SIMA_STOCK_VIA_SIMA_API, SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG])],
             'warehouses.*.stock_collect_enabled' => 'sometimes|boolean',
             'warehouses.*.stock_send_to_wb' => 'sometimes|boolean',
             'warehouses.*.stock_frequency_minutes' => 'sometimes|integer|min:5|max:1440',
         ]);
 
         $rows = $validated['warehouses'] ?? [];
-        $this->assertUniqueSupplierInRequest($rows);
+        $normalizedRows = $this->normalizeWarehouseRowsPayload($rows);
+        $this->assertNoStockSupplierOverlapInNestedRows($normalizedRows);
         $this->assertStockSettingsInRequest($rows);
 
         unset($validated['warehouses']);
 
         $seller = Sellers::create($validated);
 
-        foreach ($rows as $row) {
+        foreach ($rows as $i => $row) {
             $collect = (bool) ($row['stock_collect_enabled'] ?? false);
             $send = (bool) ($row['stock_send_to_wb'] ?? false);
+            $ids = $normalizedRows[$i]['stock_supplier_ids'];
+            $simaVia = $normalizedRows[$i]['sima_stock_via'];
             $seller->warehouses()->create([
                 'wb_warehouse_id' => $row['wb_warehouse_id'],
                 'name' => $row['name'] ?? null,
-                'supplier' => $row['supplier'] ?? null,
+                'supplier' => SellerWarehouse::legacySupplierFromStockSupplierIds($ids),
+                'stock_supplier_ids' => $ids,
+                'sima_stock_via' => $simaVia,
                 'stock_collect_enabled' => $collect,
                 'stock_send_to_wb' => $send,
                 'stock_frequency_minutes' => isset($row['stock_frequency_minutes']) ? (int) $row['stock_frequency_minutes'] : 30,
@@ -125,6 +145,9 @@ class Seller
             ],
             'name' => 'nullable|string|max:255',
             'supplier' => ['nullable', 'integer', Rule::in(self::ALLOWED_SUPPLIERS)],
+            'stock_supplier_ids' => 'sometimes|array|min:1',
+            'stock_supplier_ids.*' => ['integer', Rule::in(self::STOCK_ROUTE_SUPPLIERS)],
+            'sima_stock_via' => ['sometimes', 'string', Rule::in([SellerWarehouse::SIMA_STOCK_VIA_SIMA_API, SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG])],
             'stock_collect_enabled' => 'sometimes|boolean',
             'stock_send_to_wb' => 'sometimes|boolean',
             'stock_frequency_minutes' => 'sometimes|integer|min:5|max:1440',
@@ -132,9 +155,10 @@ class Seller
 
         $this->assertStockSendRequiresCollect($validated);
 
-        $this->assertUniqueSupplierForSeller(
+        $norm = $this->normalizeSingleWarehousePayload($validated);
+        $this->assertNoStockSupplierIntersection(
             (int) $validated['seller_id'],
-            $validated['supplier'] ?? null,
+            $norm['stock_supplier_ids'],
             null
         );
 
@@ -142,7 +166,9 @@ class Seller
         $warehouse = $seller->warehouses()->create([
             'wb_warehouse_id' => $validated['wb_warehouse_id'],
             'name' => $validated['name'] ?? null,
-            'supplier' => $validated['supplier'] ?? null,
+            'supplier' => SellerWarehouse::legacySupplierFromStockSupplierIds($norm['stock_supplier_ids']),
+            'stock_supplier_ids' => $norm['stock_supplier_ids'],
+            'sima_stock_via' => $norm['sima_stock_via'],
             'stock_collect_enabled' => (bool) ($validated['stock_collect_enabled'] ?? false),
             'stock_send_to_wb' => (bool) ($validated['stock_send_to_wb'] ?? false),
             'stock_frequency_minutes' => isset($validated['stock_frequency_minutes']) ? (int) $validated['stock_frequency_minutes'] : 30,
@@ -158,6 +184,9 @@ class Seller
             'wb_warehouse_id' => 'sometimes|integer|min:1',
             'name' => 'nullable|string|max:255',
             'supplier' => ['sometimes', 'nullable', 'integer', Rule::in(self::ALLOWED_SUPPLIERS)],
+            'stock_supplier_ids' => 'sometimes|array|min:1',
+            'stock_supplier_ids.*' => ['integer', Rule::in(self::STOCK_ROUTE_SUPPLIERS)],
+            'sima_stock_via' => ['sometimes', 'string', Rule::in([SellerWarehouse::SIMA_STOCK_VIA_SIMA_API, SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG])],
             'stock_collect_enabled' => 'sometimes|boolean',
             'stock_send_to_wb' => 'sometimes|boolean',
             'stock_frequency_minutes' => 'sometimes|integer|min:5|max:1440',
@@ -190,21 +219,33 @@ class Seller
             ]);
         }
 
-        if ($request->has('supplier')) {
-            $newSupplier = $validated['supplier'] ?? null;
-            if ($newSupplier !== $warehouse->supplier) {
-                $this->assertUniqueSupplierForSeller(
-                    (int) $warehouse->seller_id,
-                    $newSupplier,
-                    (int) $warehouse->id
-                );
-            }
+        $merge = collect($validated)->only([
+            'wb_warehouse_id',
+            'name',
+            'supplier',
+            'stock_supplier_ids',
+            'sima_stock_via',
+            'stock_collect_enabled',
+            'stock_send_to_wb',
+            'stock_frequency_minutes',
+        ])->all();
+
+        if (array_key_exists('stock_supplier_ids', $merge) || array_key_exists('supplier', $merge) || $request->has('sima_stock_via')) {
+            $payload = array_merge($warehouse->toArray(), $merge);
+            $norm = $this->normalizeSingleWarehousePayload($payload);
+            $this->assertNoStockSupplierIntersection(
+                (int) $warehouse->seller_id,
+                $norm['stock_supplier_ids'],
+                (int) $warehouse->id
+            );
+            $warehouse->stock_supplier_ids = $norm['stock_supplier_ids'];
+            $warehouse->sima_stock_via = $norm['sima_stock_via'];
+            $warehouse->supplier = SellerWarehouse::legacySupplierFromStockSupplierIds($norm['stock_supplier_ids']);
         }
 
         $warehouse->fill(collect($validated)->only([
             'wb_warehouse_id',
             'name',
-            'supplier',
             'stock_collect_enabled',
             'stock_send_to_wb',
             'stock_frequency_minutes',
@@ -288,30 +329,213 @@ class Seller
     }
 
     /**
-     * В рамках одного запроса (nested warehouses при создании селлера) не должно быть
-     * двух складов с одним и тем же supplier (в т.ч. двух NULL-складов).
-     *
-     * @param  array<int, array<string, mixed>>  $rows
+     * Обнуление остатков в WB для карточек выбранных поставщиков на указанном складе продавца.
      */
-    private function assertUniqueSupplierInRequest(array $rows): void
+    public function warehouseZeroStocks(Request $request): JsonResponse
     {
-        $seen = [];
-        foreach ($rows as $index => $row) {
-            $supplier = $row['supplier'] ?? null;
-            $key = $supplier === null ? 'null' : (string) $supplier;
-            if (isset($seen[$key])) {
-                $label = $supplier === null ? 'склад по умолчанию' : 'склад для supplier=' . $supplier;
-                throw ValidationException::withMessages([
-                    "warehouses.$index.supplier" => ['У селлера уже задан ' . $label . '.'],
-                ]);
+        $validated = $request->validate([
+            'warehouse_id' => 'required|integer|exists:seller_warehouses,id',
+            'supplier_ids' => 'required|array|min:1',
+            'supplier_ids.*' => ['integer', Rule::in(self::STOCK_ROUTE_SUPPLIERS)],
+        ]);
+
+        $warehouse = SellerWarehouse::with('seller')->findOrFail((int) $validated['warehouse_id']);
+        $seller = $warehouse->seller;
+        if ($seller === null) {
+            return response()->json(['message' => 'Магазин не найден'], 422);
+        }
+
+        if ((int) $warehouse->wb_warehouse_id <= 0) {
+            return response()->json(['message' => 'У склада не задан wb_warehouse_id'], 422);
+        }
+
+        $supplierIds = array_values(array_unique(array_map('intval', $validated['supplier_ids'])));
+        $allowed = $warehouse->effectiveStockSupplierIds();
+        $notAllowed = array_values(array_diff($supplierIds, $allowed));
+        if ($notAllowed !== []) {
+            return response()->json([
+                'message' => 'Указаны поставщики, не привязанные к этому складу: '.implode(', ', $notAllowed),
+            ], 422);
+        }
+
+        $key = trim((string) $seller->wb_api_key);
+        if ($key === '') {
+            return response()->json(['message' => 'У продавца не задан API-ключ WB'], 422);
+        }
+
+        $cards = Cards::query()
+            ->where('sellerID', $seller->id)
+            ->whereIn('supplier', $supplierIds)
+            ->where('supplier', '>', 0)
+            ->get(['id', 'chrtID']);
+
+        $rows = [];
+        $seenChrt = [];
+        foreach ($cards as $card) {
+            $chrtRaw = $card->chrtID;
+            if ($chrtRaw === null || $chrtRaw === '' || (int) $chrtRaw <= 0) {
+                continue;
             }
-            $seen[$key] = true;
+            $chrtId = (int) $chrtRaw;
+            if (isset($seenChrt[$chrtId])) {
+                continue;
+            }
+            $seenChrt[$chrtId] = true;
+            $rows[] = ['chrtId' => $chrtId, 'amount' => 0];
+        }
+
+        if ($rows === []) {
+            return response()->json([
+                'message' => 'Нет карточек с chrtID для выбранных поставщиков',
+                'sent' => 0,
+                'supplier_ids' => $supplierIds,
+            ], 422);
+        }
+
+        $service = new WildberriesService($key, []);
+        $wbWhId = (int) $warehouse->wb_warehouse_id;
+        foreach (array_chunk($rows, 1000) as $chunk) {
+            if (! $service->updateStocks($wbWhId, $chunk)) {
+                return response()->json([
+                    'message' => 'Wildberries отклонил запрос обновления остатков',
+                    'sent' => 0,
+                ], 502);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'sent' => count($rows),
+            'warehouse_id' => (int) $warehouse->id,
+            'supplier_ids' => $supplierIds,
+        ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array{stock_supplier_ids: list<int>, sima_stock_via: string}>
+     */
+    private function normalizeWarehouseRowsPayload(array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $i => $row) {
+            $out[$i] = $this->normalizeSingleWarehousePayload($row);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{stock_supplier_ids: list<int>, sima_stock_via: string}
+     */
+    private function normalizeSingleWarehousePayload(array $data): array
+    {
+        $idsRaw = $data['stock_supplier_ids'] ?? null;
+        if (is_array($idsRaw) && $idsRaw !== []) {
+            $ids = $this->normalizeStockSupplierIdList($idsRaw);
+        } else {
+            $legacy = $data['supplier'] ?? null;
+            $ids = $this->normalizeStockSupplierIdListFromLegacy($legacy === '' ? null : $legacy);
+        }
+
+        $via = (string) ($data['sima_stock_via'] ?? SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG);
+        if (! in_array($via, [SellerWarehouse::SIMA_STOCK_VIA_SIMA_API, SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG], true)) {
+            $via = SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG;
+        }
+        if (! in_array(20, $ids, true)) {
+            $via = SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG;
+        }
+
+        return [
+            'stock_supplier_ids' => $ids,
+            'sima_stock_via' => $via,
+        ];
+    }
+
+    /**
+     * @param  list<mixed>  $ids
+     * @return list<int>
+     */
+    private function normalizeStockSupplierIdList(array $ids): array
+    {
+        $out = [];
+        foreach ($ids as $x) {
+            $i = (int) $x;
+            if ($i > 0 && in_array($i, self::STOCK_ROUTE_SUPPLIERS, true)) {
+                $out[$i] = true;
+            }
+        }
+        $keys = array_map('intval', array_keys($out));
+        sort($keys);
+        if ($keys === []) {
+            throw ValidationException::withMessages([
+                'stock_supplier_ids' => ['Укажите хотя бы одного поставщика из списка: '.implode(', ', self::STOCK_ROUTE_SUPPLIERS)],
+            ]);
+        }
+
+        return $keys;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function normalizeStockSupplierIdListFromLegacy(null|int|string $supplier): array
+    {
+        if ($supplier === null || $supplier === '') {
+            return [10];
+        }
+        if ((int) $supplier === 20) {
+            return [20];
+        }
+
+        return [10];
+    }
+
+    /**
+     * @param  array<int, array{stock_supplier_ids: list<int>, sima_stock_via: string}>  $normalizedRows
+     */
+    private function assertNoStockSupplierOverlapInNestedRows(array $normalizedRows): void
+    {
+        $previous = [];
+        foreach ($normalizedRows as $idx => $norm) {
+            $ids = $norm['stock_supplier_ids'];
+            foreach ($previous as $j => $prevIds) {
+                if (array_intersect($ids, $prevIds) !== []) {
+                    throw ValidationException::withMessages([
+                        "warehouses.$idx.stock_supplier_ids" => [
+                            'Поставщики пересекаются с другим складом в этом запросе (warehouses['.$j.']).',
+                        ],
+                    ]);
+                }
+            }
+            $previous[$idx] = $ids;
         }
     }
 
     /**
-     * У селлера не может быть двух складов для одного и того же supplier.
+     * @param  list<int>  $supplierIds
      */
+    private function assertNoStockSupplierIntersection(int $sellerId, array $supplierIds, ?int $ignoreWarehouseId): void
+    {
+        $supplierIds = array_values(array_unique($supplierIds));
+        $query = SellerWarehouse::query()->where('seller_id', $sellerId);
+        if ($ignoreWarehouseId !== null) {
+            $query->where('id', '!=', $ignoreWarehouseId);
+        }
+        foreach ($query->get() as $existing) {
+            $other = $existing->effectiveStockSupplierIds();
+            $inter = array_intersect($supplierIds, $other);
+            if ($inter !== []) {
+                throw ValidationException::withMessages([
+                    'stock_supplier_ids' => [
+                        'Поставщик(и) '.implode(', ', $inter).' уже привязаны к другому складу (#'.$existing->id.').',
+                    ],
+                ]);
+            }
+        }
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $rows
      */
@@ -343,26 +567,6 @@ class Seller
         if ($send && ! $collect) {
             throw ValidationException::withMessages([
                 'stock_send_to_wb' => ['Нельзя отправлять остатки в WB без включённого сбора.'],
-            ]);
-        }
-    }
-
-    private function assertUniqueSupplierForSeller(int $sellerId, ?int $supplier, ?int $ignoreId): void
-    {
-        $query = SellerWarehouse::where('seller_id', $sellerId);
-        if ($supplier === null) {
-            $query->whereNull('supplier');
-        } else {
-            $query->where('supplier', $supplier);
-        }
-        if ($ignoreId !== null) {
-            $query->where('id', '!=', $ignoreId);
-        }
-
-        if ($query->exists()) {
-            $label = $supplier === null ? 'склад по умолчанию' : 'склад для supplier=' . $supplier;
-            throw ValidationException::withMessages([
-                'supplier' => ['У селлера уже задан ' . $label . '.'],
             ]);
         }
     }

@@ -32,15 +32,37 @@ class SimJob implements ShouldQueue
 
     public function handle(): void
     {
-        self::{$this->action}($this->params);
+        $this->{$this->action}($this->params);
+    }
+
+    public function cleanArticle($article): string
+    {
+        preg_match('/^\d+/', $article, $matches);
+
+        return ! empty($matches) ? $matches[0] : '';
     }
 
     private function calcPrice($params): array
     {
         try {
+            $origSid = $sid = (string) ($params['sid'] ?? '');
+            $sid = $this->cleanArticle($sid);
+            if ($sid === '') {
+                echo "❌ calcPrice: не указан sid\n";
+
+                return ['error' => 'missing_sid'];
+            }
+
+            $prior = SkuMapping::query()->where('origSku', $origSid)->first();
+            if ($prior !== null && ($prior->blocked || $prior->user_blocked)) {
+                echo "⏭️ origSku {$sid}: запись заблокирована, calcPrice пропущен\n";
+
+                return ['skipped' => true, 'reason' => 'blocked'];
+            }
+
             echo "🚀 Начало выполнения джобы\n";
             echo "🔍 Получение данных о товаре\n";
-            $response = SimService::fetchProductData($params['sid']);
+            $response = SimService::fetchProductData($sid);
             echo "✅ Валидация ответа\n";
             SimService::validateResponse($response);
             $item = $response['items'][0];
@@ -74,8 +96,8 @@ class SimJob implements ShouldQueue
             ], $priceBlock, $dimensions);
             echo "🔄 Обновление или создание записи\n";
             SkuMapping::updateOrCreate(
-                ['origSku' => $params['sid']],
-                $data
+                ['origSku' => $origSid],
+                array_merge($data, ['blocked' => false])
             );
             echo "✅ Джоба успешно завершена\n";
         } catch (ConnectionException $e) {
@@ -90,21 +112,18 @@ class SimJob implements ShouldQueue
                 throw $e;
             }
 
-            if ($e->getMessage() === 'Amount is null') {
-                $sid = (string) ($params['sid'] ?? '');
-                if ($sid !== '') {
-                    SkuMapping::query()
-                        ->where('origSku', $sid)
-                        ->update([
-                            'blocked' => true,
-                            'needUpdatePrice' => false,
-                        ]);
-                    echo "🛑 origSku {$sid}: нет остатка на Sima-Land — skuMapping заблокирован, пересчёт цен отключён\n";
-                }
+            $msg = $e->getMessage();
+
+            if (
+                $msg === 'Amount is null'
+                || $this->isPermanentCalcPriceFailure($e)
+                || $msg === 'Product not found'
+            ) {
+                $this->blockSkuMappingAfterPermanentFailure($origSid, $msg);
 
                 return [
                     'blocked' => true,
-                    'reason' => 'Amount is null',
+                    'reason' => $msg,
                 ];
             }
 
@@ -113,6 +132,42 @@ class SimJob implements ShouldQueue
         echo "🎉 Все операции выполнены успешно\n";
 
         return ['success' => true];
+    }
+
+    /**
+     * Ошибки Sima-Land / размеров, после которых повторный calcPrice бессмысленен до ручного разбора.
+     */
+    private function isPermanentCalcPriceFailure(Exception $e): bool
+    {
+        $msg = $e->getMessage();
+
+        return str_contains($msg, 'помещен в карантин')
+            || $msg === 'Min quantity > 1';
+    }
+
+    /**
+     * Блокирует skuMapping, чтобы не ставить calcPrice снова (очередь retry-empty, и т.д.).
+     */
+    private function blockSkuMappingAfterPermanentFailure(string $sid, string $reason): void
+    {
+        if ($sid === '') {
+            return;
+        }
+
+        $updated = SkuMapping::query()
+            ->where('origSku', $sid)
+            ->update([
+                'blocked' => true,
+                'needUpdatePrice' => false,
+            ]);
+
+        if ($updated > 0) {
+            echo "🛑 origSku {$sid}: {$reason} — skuMapping заблокирован, пересчёт цен отключён\n";
+
+            return;
+        }
+
+        echo "⚠️ origSku {$sid}: постоянная ошибка ({$reason}), строка skuMapping не найдена — блокировка не записана\n";
     }
 
     private function calculateLogistics(float $volume): float

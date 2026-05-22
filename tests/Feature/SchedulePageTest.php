@@ -19,6 +19,7 @@ class SchedulePageTest extends TestCase
         $response->assertSee('График');
         $response->assertSee('scheduleDaysGrid');
         $response->assertSee('scheduleMonthlyPieChart');
+        $response->assertSee('scheduleMonthlyShiftStats');
         $response->assertSee('/assets/js/Schedule/index.js');
     }
 }

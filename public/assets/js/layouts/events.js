@@ -46,6 +46,27 @@ function syncWarehouseStockFormControls() {
     }
 }
 
+function syncWarehouseSimaViaBlockVisibility() {
+    var show = $('#whSup20').is(':checked');
+    $('#whFormSimaViaBlock').toggle(!!show);
+    if (!show) {
+        $('#whFormSimaStockVia').val('wb_catalog');
+    }
+}
+
+function parseWhStocksAttr($btn) {
+    var raw = $btn.attr('data-wh-stocks');
+    if (!raw) {
+        return [10];
+    }
+    try {
+        var parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [10];
+    } catch (e) {
+        return [10];
+    }
+}
+
 function resetShopFormApiKeyVisibility() {
     var $inp = $('#shopFormApiKey');
     var $btn = $('.js-shop-api-key-toggle');
@@ -234,11 +255,14 @@ $(document).on('click', '.warehouseAddBtn', function () {
     $('#whFormSellerId').val(sellerId);
     $('#whFormWbId').val('');
     $('#whFormName').val('');
-    $('#whFormSupplier').val('');
+    $('#whSup10').prop('checked', true);
+    $('#whSup20').prop('checked', false);
+    $('#whFormSimaStockVia').val('wb_catalog');
     $('#whFormStockCollect').prop('checked', false);
     $('#whFormStockSend').prop('checked', false);
     $('#whFormStockFreq').val(30);
     syncWarehouseStockFormControls();
+    syncWarehouseSimaViaBlockVisibility();
 });
 
 $(document).on('click', '.warehouseEditBtn', function () {
@@ -264,14 +288,21 @@ $(document).on('click', '.warehouseEditBtn', function () {
     $('#whFormSellerId').val(sellerId);
     $('#whFormWbId').val(wh.wb_warehouse_id);
     $('#whFormName').val(wh.name || '');
-    $('#whFormSupplier').val(wh.supplier != null ? String(wh.supplier) : '');
+    var ids = wh.stock_supplier_ids && wh.stock_supplier_ids.length
+        ? wh.stock_supplier_ids.map(function (x) { return parseInt(x, 10); })
+        : (wh.supplier == 20 ? [20] : [10]);
+    $('#whSup10').prop('checked', ids.indexOf(10) >= 0);
+    $('#whSup20').prop('checked', ids.indexOf(20) >= 0);
+    $('#whFormSimaStockVia').val(wh.sima_stock_via === 'sima_api' ? 'sima_api' : 'wb_catalog');
     $('#whFormStockCollect').prop('checked', !!wh.stock_collect_enabled);
     $('#whFormStockSend').prop('checked', !!wh.stock_send_to_wb);
     $('#whFormStockFreq').val(wh.stock_frequency_minutes != null ? wh.stock_frequency_minutes : 30);
     syncWarehouseStockFormControls();
+    syncWarehouseSimaViaBlockVisibility();
 });
 
 $(document).on('change', '#whFormStockCollect', syncWarehouseStockFormControls);
+$(document).on('change', '.wh-stock-supplier-cb', syncWarehouseSimaViaBlockVisibility);
 
 $(document).on('click', '#whFormCancel', function () {
     if (!shopsModalRef) {
@@ -287,15 +318,26 @@ $(document).on('submit', '#shopWarehouseForm', function (e) {
     var sellerId = parseInt($('#whFormSellerId').val(), 10);
     var wbId = parseInt($('#whFormWbId').val(), 10);
     var nameVal = $('#whFormName').val().trim();
-    var supVal = $('#whFormSupplier').val();
+    var ids = [];
+    $('.wh-stock-supplier-cb:checked').each(function () {
+        ids.push(parseInt($(this).val(), 10));
+    });
+    ids.sort(function (a, b) { return a - b; });
+    if (!ids.length) {
+        alert('Выберите хотя бы одного поставщика карточек для маршрута остатков.');
+        return;
+    }
     var payload = {
         wb_warehouse_id: wbId,
         name: nameVal === '' ? null : nameVal,
-        supplier: supVal === '' ? null : parseInt(supVal, 10),
+        stock_supplier_ids: ids,
         stock_collect_enabled: $('#whFormStockCollect').is(':checked'),
         stock_send_to_wb: $('#whFormStockSend').is(':checked'),
         stock_frequency_minutes: parseInt($('#whFormStockFreq').val(), 10) || 30,
     };
+    if (ids.indexOf(20) >= 0) {
+        payload.sima_stock_via = $('#whFormSimaStockVia').val();
+    }
     if (rowId) {
         payload.id = parseInt(rowId, 10);
         ajaxUpdateWarehouse(payload);
@@ -303,6 +345,55 @@ $(document).on('submit', '#shopWarehouseForm', function (e) {
         payload.seller_id = sellerId;
         ajaxStoreWarehouse(payload);
     }
+});
+
+$(document).on('click', '.warehouseZeroStocksBtn', function () {
+    var whId = $(this).data('wh-id');
+    if (!shopsModalRef || !whId) {
+        return;
+    }
+    var stocks = parseWhStocksAttr($(this));
+    shopsModalRef.window.find('.modal-title').text('Обнулить остатки в WB');
+    var tmpl = _.template($('#shop-warehouse-zero-stocks-template').html());
+    shopsModalRef.content(tmpl({}));
+    $('#whZeroWhId').val(String(whId));
+    var $cbs = $('#whZeroSupplierCbs');
+    $cbs.empty();
+    stocks.forEach(function (sid) {
+        var label = sid === 20 ? 'Sima-Land (20)' : 'Каталог WB (10)';
+        var id = 'whZeroSup' + sid;
+        $cbs.append(
+            '<div class="form-check">' +
+                '<input type="checkbox" class="form-check-input wh-zero-sup-cb" id="' + _.escape(id) + '" value="' + sid + '" checked>' +
+                '<label class="form-check-label" for="' + _.escape(id) + '">' + _.escape(label) + '</label>' +
+            '</div>',
+        );
+    });
+});
+
+$(document).on('click', '#whZeroCancel', function () {
+    if (!shopsModalRef) {
+        return;
+    }
+    shopsModalRef.window.find('.modal-title').text('Магазины');
+    ajaxGetShops(shopsModalRef);
+});
+
+$(document).on('submit', '#whZeroForm', function (e) {
+    e.preventDefault();
+    var whId = $('#whZeroWhId').val();
+    var supplierIds = [];
+    $('.wh-zero-sup-cb:checked').each(function () {
+        supplierIds.push(parseInt($(this).val(), 10));
+    });
+    if (!supplierIds.length) {
+        alert('Отметьте хотя бы одного поставщика.');
+        return;
+    }
+    if (!confirm('Отправить нулевые остатки в Wildberries для выбранных поставщиков на этом складе?')) {
+        return;
+    }
+    ajaxWarehouseZeroStocks(whId, supplierIds);
 });
 
 $(document).on('click', '.warehouseDeleteBtn', function () {

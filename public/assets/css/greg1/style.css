@@ -542,6 +542,189 @@ body {
     font-size: 0.9rem;
 }
 
+.page-competitors .competitor-stats__tile {
+    border-radius: 12px;
+    padding: 12px 14px;
+    height: 100%;
+    transition:
+        box-shadow 0.45s ease,
+        border-color 0.35s ease,
+        transform 0.35s ease,
+        background 0.35s ease;
+}
+
+.page-competitors .competitor-stats__tile--orphans {
+    border: 1px solid rgba(234, 179, 8, 0.45);
+    background: linear-gradient(145deg, rgba(254, 243, 199, 0.65), rgba(253, 230, 138, 0.35));
+    box-shadow: 0 4px 14px rgba(234, 179, 8, 0.12);
+}
+
+.page-competitors .competitor-stats__tile--queue {
+    border: 1px solid rgba(34, 197, 94, 0.4);
+    background: linear-gradient(145deg, rgba(220, 252, 231, 0.75), rgba(187, 247, 208, 0.35));
+    box-shadow: 0 4px 14px rgba(34, 197, 94, 0.1);
+}
+
+.page-competitors .competitor-stats__tile--orphans .competitor-stats__label {
+    color: #92400e;
+}
+
+.page-competitors .competitor-stats__tile--queue .competitor-stats__label {
+    color: #166534;
+}
+
+.page-competitors .competitor-stats__label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+}
+
+.page-competitors .competitor-stats__value {
+    display: block;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.page-competitors .competitor-stats__tile--orphans .competitor-stats__value {
+    color: #b45309;
+}
+
+.page-competitors .competitor-stats__tile--queue .competitor-stats__value {
+    color: #15803d;
+}
+
+.page-competitors .competitor-stats__hint {
+    margin-top: 8px;
+    line-height: 1.35;
+}
+
+.page-competitors .competitor-stats__tile--orphans .competitor-stats__hint {
+    color: rgba(120, 53, 15, 0.78);
+}
+
+.page-competitors .competitor-stats__tile--click-copy {
+    cursor: pointer;
+    outline: none;
+}
+
+.page-competitors .competitor-stats__tile--click-copy:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(234, 179, 8, 0.18);
+}
+
+.page-competitors .competitor-stats__tile--click-copy:focus-visible {
+    box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.45);
+}
+
+.page-competitors .competitor-copy-notice {
+    display: none;
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #14532d;
+    background: rgba(220, 252, 231, 0.95);
+    border: 1px solid rgba(34, 197, 94, 0.45);
+}
+
+.page-competitors .competitor-copy-notice.is-visible {
+    display: block;
+}
+
+.page-competitors .competitor-stats__tile--queue .competitor-stats__hint {
+    color: rgba(22, 101, 52, 0.78);
+}
+
+/* Счётчик категорий WB (checked=0) в блоке «Проверка сирот по каталогу WB» */
+.page-competitors .competitor-orphan-catalog-categories-stat {
+    border-radius: 12px;
+    padding: 12px 14px;
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    background: linear-gradient(145deg, rgba(219, 234, 254, 0.95), rgba(191, 219, 254, 0.55));
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12);
+}
+
+.page-competitors .competitor-orphan-catalog-categories-stat__label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: #1e3a8a;
+    margin-bottom: 6px;
+}
+
+.page-competitors .competitor-orphan-catalog-categories-stat__label code {
+    font-size: 0.85em;
+    padding: 0.1em 0.35em;
+    color: #1e40af;
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    border-radius: 4px;
+}
+
+.page-competitors .competitor-orphan-catalog-categories-stat__value {
+    display: block;
+    font-size: 1.45rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: #1d4ed8;
+    line-height: 1.2;
+}
+
+@keyframes competitor-stat-pulse-amber {
+    0% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35);
+    }
+    45% {
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.12);
+    }
+    100% {
+        box-shadow: 0 4px 14px rgba(234, 179, 8, 0.12);
+    }
+}
+
+@keyframes competitor-stat-pulse-green {
+    0% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.35);
+    }
+    45% {
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12);
+    }
+    100% {
+        box-shadow: 0 4px 14px rgba(34, 197, 94, 0.1);
+    }
+}
+
+.page-competitors .competitor-stats__tile--orphans.is-value-updated {
+    animation: competitor-stat-pulse-amber 0.75s ease-out;
+}
+
+.page-competitors .competitor-stats__tile--queue.is-value-updated {
+    animation: competitor-stat-pulse-green 0.75s ease-out;
+}
+
+.page-competitors .competitor-stats__tile.is-value-updated .competitor-stats__value {
+    animation: competitor-stat-value-pop 0.55s ease-out;
+}
+
+@keyframes competitor-stat-value-pop {
+    0% {
+        transform: scale(1);
+    }
+    35% {
+        transform: scale(1.08);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
 .btn {
     border-radius: 10px;
     font-weight: 600;
@@ -642,14 +825,240 @@ body {
 
 .page-cards .cards-toolbar {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 18px 20px 20px;
+}
+
+.page-cards .cards-toolbar__top {
+    display: flex;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
-    padding: 18px 20px;
+    gap: 16px 20px;
 }
 
 .page-cards .cards-toolbar__action {
     flex-shrink: 0;
+    align-self: flex-start;
+}
+
+.page-cards .cards-toolbar__sync {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--ui-border);
+}
+
+.page-cards .cards-toolbar__sync-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-bottom: 6px;
+}
+
+.page-cards .cards-toolbar__sync-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #334155;
+    letter-spacing: 0.02em;
+}
+
+.page-cards .cards-toolbar__sync-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    background: rgba(100, 116, 139, 0.12);
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.page-cards .cards-toolbar__sync-lead {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #64748b;
+    margin-bottom: 10px;
+    max-width: 52rem;
+}
+
+.page-cards .cards-toolbar__sync-lead code {
+    font-size: 0.78em;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background: rgba(68, 86, 242, 0.08);
+    color: #4338ca;
+}
+
+.page-cards .cards-toolbar__codes {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    min-height: 5.5rem;
+    max-height: 9rem;
+    resize: vertical;
+    padding: 10px 12px;
+    border-radius: var(--ui-control-radius, 8px);
+    border-color: var(--ui-border);
+    background: #fafbfc;
+}
+
+.page-cards .cards-toolbar__codes:focus {
+    background: #fff;
+    border-color: rgba(68, 86, 242, 0.45);
+    box-shadow: 0 0 0 3px rgba(68, 86, 242, 0.12);
+}
+
+.page-cards .cards-toolbar__codes::placeholder {
+    color: #94a3b8;
+    white-space: pre-wrap;
+}
+
+.page-cards .cards-stock-toolbar {
+    padding: 12px 16px 14px;
+}
+
+.page-cards .cards-stock-toolbar__inner {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.page-cards .cards-stock-toolbar__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+}
+
+.page-cards .cards-stock-toolbar__count {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #334155;
+    min-width: 6.5rem;
+}
+
+.page-cards .cards-stock-toolbar__field {
+    min-width: 0;
+}
+
+.page-cards .cards-stock-toolbar__field .form-control {
+    min-width: 7.5rem;
+    max-width: 12rem;
+}
+
+.page-cards .cards-stock-toolbar__submit {
+    white-space: nowrap;
+}
+
+.page-cards .cards-bulk-toolbar {
+    padding: 12px 16px 14px;
+}
+
+.page-cards .cards-bulk-toolbar__inner {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.page-cards .cards-bulk-toolbar__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+}
+
+.page-cards .cards-bulk-toolbar__count {
+    flex: 1 1 auto;
+    min-width: 10rem;
+}
+
+.page-cards .ui-data-table tbody tr.is-orphan-for-clone {
+    opacity: 0.72;
+}
+
+.page-cards .ui-data-table tbody tr.is-orphan-for-clone .js-card-stock-select:disabled {
+    cursor: not-allowed;
+}
+
+.page-cards .mobile-card-item.is-orphan-for-clone {
+    opacity: 0.72;
+}
+
+.page-cards .cards-orphan-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.page-cards .cards-qr-generator {
+    padding: 14px 16px 16px;
+}
+
+.page-cards .cards-qr-generator__head {
+    margin-bottom: 10px;
+}
+
+.page-cards .cards-qr-generator__lead {
+    max-width: 48rem;
+    margin-top: 4px;
+}
+
+.page-cards .cards-qr-generator__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+}
+
+.page-cards .cards-qr-generator__field {
+    width: 5.5rem;
+    min-width: 0;
+}
+
+.page-cards .cards-qr-generator__field .form-control {
+    text-align: center;
+}
+
+.page-cards .cards-qr-generator__preview {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--ui-border);
+}
+
+.page-cards .cards-qr-generator__preview-head {
+    margin-bottom: 6px;
+}
+
+.page-cards .cards-qr-generator__list {
+    list-style: none;
+    padding-left: 0;
+    max-height: 10rem;
+    overflow: auto;
+    font-size: 0.8125rem;
+}
+
+.page-cards .cards-qr-generator__list-item {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.page-cards .cards-qr-generator__list-item:last-child {
+    border-bottom: 0;
+}
+
+.page-cards .ui-data-table .cards-table-col-check {
+    width: 2.5rem;
+    vertical-align: middle;
+}
+
+.page-cards .ui-data-table .cards-table-col-check .js-card-stock-select {
+    width: 1.1rem;
+    height: 1.1rem;
+    cursor: pointer;
 }
 
 .page-cards .cards-content {
@@ -888,6 +1297,20 @@ body {
     display: flex;
     gap: 10px;
     margin-bottom: 10px;
+    align-items: flex-start;
+}
+
+.mobile-card-item__check {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding-top: 2px;
+}
+
+.mobile-card-item__check .js-card-stock-select {
+    width: 1.15rem;
+    height: 1.15rem;
+    cursor: pointer;
 }
 
 .mobile-card-item__image {
@@ -990,6 +1413,22 @@ body {
         top: 64px;
     }
 
+    .page-cards .cards-toolbar__top {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .page-cards .cards-toolbar__action {
+        align-self: stretch;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .page-cards .cards-toolbar__sync {
+        margin-top: 14px;
+        padding-top: 14px;
+    }
+
     .page-cards .cards-toolbar__title h4 {
         font-size: 1rem;
     }
@@ -1000,6 +1439,40 @@ body {
 
     .page-cards .cards-content {
         padding: 10px;
+    }
+
+    .page-cards .cards-stock-toolbar__controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .page-cards .cards-stock-toolbar__field .form-control {
+        max-width: none;
+        width: 100%;
+    }
+
+    .page-cards .cards-stock-toolbar__submit {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .page-cards .cards-bulk-toolbar__controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .page-cards .cards-bulk-toolbar__controls .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .page-cards .cards-qr-generator__controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .page-cards .cards-qr-generator__field {
+        width: 100%;
     }
 
     .page-fleet .content-viewport {
@@ -2036,6 +2509,254 @@ textarea:focus-visible,
     }
 }
 
+/* Transport reports: weekly finance KPI + payout modals */
+.page-transport-reports .transport-reports-finance {
+    padding: 18px 20px 20px;
+}
+
+.page-transport-reports .transport-finance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.page-transport-reports .transport-finance-card {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.55);
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+}
+
+.page-transport-reports .transport-finance-card--accent {
+    border-color: rgba(59, 130, 246, 0.45);
+    background: linear-gradient(145deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.65));
+}
+
+.page-transport-reports .transport-finance-card--highlight {
+    border-color: rgba(34, 197, 94, 0.45);
+    background: linear-gradient(145deg, rgba(34, 197, 94, 0.08), rgba(255, 255, 255, 0.65));
+}
+
+.page-transport-reports .transport-finance-card__icon {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(148, 163, 184, 0.12);
+}
+
+.page-transport-reports .transport-finance-card__icon .mdi {
+    font-size: 1.45rem;
+    line-height: 1;
+}
+
+.page-transport-reports .transport-finance-card__body {
+    min-width: 0;
+    flex: 1;
+}
+
+.page-transport-reports .transport-finance-card__label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--ui-muted, #64748b);
+    margin-bottom: 4px;
+}
+
+.page-transport-reports .transport-finance-card__value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    color: var(--ui-text, #0f172a);
+}
+
+.page-transport-reports .transport-finance-card__value.is-positive {
+    color: #15803d;
+}
+
+.page-transport-reports .transport-finance-card__value.is-negative {
+    color: #b91c1c;
+}
+
+.page-transport-reports .transport-finance-card__value--link {
+    color: #2563eb !important;
+    text-decoration: underline !important;
+    cursor: pointer;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+.page-transport-reports .transport-finance-card__value--link:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    text-decoration: none !important;
+}
+
+.page-transport-reports .transport-finance-card__hint {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Модалки финансов рендерятся вне .page-transport-reports — не завязываем на родителя страницы */
+.transport-finance-modal .modal-content {
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+#driverPayoutsModal .transport-finance-payouts-table thead th {
+    border-top: none;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+}
+
+#driverPayoutsModal .transport-finance-payouts-table tbody td {
+    vertical-align: middle;
+}
+
+/* Модалка выплат водителям: без серых линий ячеек и обводок у кнопок/ссылок/бейджей */
+#driverPayoutsModal .transport-finance-payouts-table.table-borderless > tbody > tr > td,
+#driverPayoutsModal .transport-finance-payouts-table.table-borderless > tbody > tr > th {
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+/* btn-primary часто рисуется через background-image — не сбрасываем фон у всех .btn */
+#driverPayoutsModal #driverPayoutsTableBody .btn-primary,
+#driverPayoutsModal #driverPayoutsTableBody .btn:not(.btn-link) {
+    border: none !important;
+    outline: none !important;
+}
+
+#driverPayoutsModal #driverPayoutsTableBody .btn-link {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background: transparent !important;
+    background-image: none !important;
+}
+
+#driverPayoutsModal #driverPayoutsTableBody .btn:focus,
+#driverPayoutsModal #driverPayoutsTableBody .btn:focus-visible,
+#driverPayoutsModal #driverPayoutsTableBody .btn:active {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+/* hover: у primary оставляем стандартную подсветку темы (цвет/градиент) */
+#driverPayoutsModal #driverPayoutsTableBody .btn-link:hover {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+#driverPayoutsModal #driverPayoutsTableBody .badge {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Firefox: внутренняя линия у <button> */
+#driverPayoutsModal #driverPayoutsTableBody button::-moz-focus-inner {
+    border: 0 !important;
+    padding: 0;
+}
+
+#driverDayBreakdownModal .transport-finance-days-table thead th {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+}
+
+#driverDayBreakdownModal .transport-finance-days-table tbody td {
+    vertical-align: middle;
+}
+
+#driverDayBreakdownModal .transport-finance-days-table .text-route,
+#driverPayoutsModal .transport-finance-payouts-table .text-route {
+    color: #1d4ed8;
+}
+
+#driverDayBreakdownModal .transport-finance-days-table .text-accrual,
+#driverPayoutsModal .transport-finance-payouts-table .text-accrual {
+    color: #6366f1;
+}
+
+#driverPayoutsModal .transport-finance-paid-badge {
+    font-weight: 600;
+    padding: 0.35em 0.55em;
+}
+
+.page-transport-reports .transport-finance-logistician-actions .transport-finance-card__value {
+    margin-right: 0.5rem;
+}
+
+.page-transport-reports .transport-finance-logistician-actions .btn {
+    margin-right: 0.35rem;
+    margin-top: 0.25rem;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+#driverPayoutsModal .transport-finance-driver-action-stack .btn-link {
+    font-size: 0.8rem;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    outline: none !important;
+}
+
+#driverPayoutsModal .transport-finance-driver-action-stack .btn-link:focus,
+#driverPayoutsModal .transport-finance-driver-action-stack .btn-link:active {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+#driverPayoutsModal .js-open-driver-days {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    outline: none !important;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+#driverPayoutsModal .js-open-driver-days:hover,
+#driverPayoutsModal .js-open-driver-days:focus,
+#driverPayoutsModal .js-open-driver-days:active {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background: transparent !important;
+    text-decoration: underline;
+    color: #1d4ed8 !important;
+}
+
+#driverPayoutsModal .transport-finance-payouts-table .btn-link {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+#driverPayoutsModal .transport-finance-carry-hint {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 500;
+    margin-top: 0.1rem;
+}
+
 /* Driver adjustments page */
 .page-driver-adjustments .adjustments-toolbar {
     padding: 18px 20px;
@@ -2157,13 +2878,14 @@ textarea:focus-visible,
 }
 
 .page-schedule .schedule-driver-badge {
-    border: 0;
-    background: rgba(37, 99, 235, 0.1);
-    color: #1d4ed8;
+    border: 1px solid rgba(37, 99, 235, 0.3);
+    background: rgba(37, 99, 235, 0.12);
+    color: #1e3a8a;
     border-radius: 999px;
     padding: 2px 8px;
     font-size: 0.75rem;
     text-align: left;
+    font-weight: 600;
 }
 
 .page-schedule .schedule-day-more {
@@ -2176,6 +2898,61 @@ textarea:focus-visible,
     border-radius: 10px;
     padding: 10px;
     margin-bottom: 8px;
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), #fff);
+}
+
+.page-schedule .schedule-day-driver-title {
+    color: #0f172a;
+    margin-bottom: 6px;
+}
+
+.page-schedule .schedule-day-driver-title .mdi {
+    color: #334155;
+}
+
+.page-schedule .schedule-day-line {
+    color: #1f2937;
+    margin-bottom: 3px;
+    font-size: 0.93rem;
+}
+
+.page-schedule .schedule-day-line .mdi {
+    color: #475569;
+    margin-right: 2px;
+}
+
+.page-schedule .schedule-day-line--money {
+    color: #0f172a;
+}
+
+.page-schedule .schedule-chip {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 0.72rem;
+    border: 1px solid rgba(100, 116, 139, 0.25);
+    color: #334155;
+    background: rgba(148, 163, 184, 0.14);
+}
+
+.page-schedule .schedule-chip--ok {
+    border-color: rgba(34, 197, 94, 0.35);
+    color: #166534;
+    background: rgba(34, 197, 94, 0.14);
+}
+
+.page-schedule .schedule-chip--warn {
+    border-color: rgba(245, 158, 11, 0.35);
+    color: #92400e;
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.page-schedule .schedule-plus {
+    color: #047857;
+}
+
+.page-schedule .schedule-minus {
+    color: #b91c1c;
 }
 
 .page-schedule .schedule-monthly-chart-wrap {
@@ -2186,6 +2963,48 @@ textarea:focus-visible,
 .page-schedule #scheduleMonthlyPieChart {
     width: 100% !important;
     max-height: 230px;
+}
+
+.page-schedule .schedule-monthly-total {
+    color: #0f172a;
+    font-size: 0.95rem;
+}
+
+.page-schedule .schedule-monthly-shift-stats {
+    font-size: 0.875rem;
+    color: #0f172a;
+}
+
+.page-schedule .schedule-monthly-shift-stats table {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.page-schedule .schedule-monthly-shift-stats th,
+.page-schedule .schedule-monthly-shift-stats td {
+    padding: 0.35rem 0.5rem;
+    vertical-align: middle;
+}
+
+.page-schedule .schedule-monthly-shift-stats th {
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.45);
+}
+
+.page-schedule .schedule-monthly-shift-stats td {
+    border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.page-schedule .schedule-monthly-shift-stats tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.page-schedule .schedule-monthly-shift-stats .schedule-shift-count {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
 }
 
 @media (max-width: 1199px) {

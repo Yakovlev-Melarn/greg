@@ -7,6 +7,9 @@ const $loading = $('#scheduleCalendarLoading');
 const $monthPicker = $('#scheduleMonthPicker');
 const $monthlyPieCanvas = $('#scheduleMonthlyPieChart');
 const $monthlyPieEmpty = $('#scheduleMonthlyPieEmpty');
+const $monthlyTotal = $('#scheduleMonthlyTotal');
+const $monthlyShiftStats = $('#scheduleMonthlyShiftStats');
+const $monthlyShiftEmpty = $('#scheduleMonthlyShiftEmpty');
 
 const state = {
     currentMonth: getMonthStart(new Date()),
@@ -14,6 +17,17 @@ const state = {
     selectedDateKey: null,
     monthlyPieChart: null,
 };
+
+const DRIVER_COLORS = [
+    { bg: 'rgba(59,130,246,0.16)', border: '#60a5fa', text: '#1e40af' },
+    { bg: 'rgba(16,185,129,0.16)', border: '#34d399', text: '#065f46' },
+    { bg: 'rgba(234,88,12,0.16)', border: '#fb923c', text: '#9a3412' },
+    { bg: 'rgba(168,85,247,0.16)', border: '#c084fc', text: '#6b21a8' },
+    { bg: 'rgba(236,72,153,0.16)', border: '#f472b6', text: '#9d174d' },
+    { bg: 'rgba(20,184,166,0.16)', border: '#2dd4bf', text: '#115e59' },
+    { bg: 'rgba(245,158,11,0.16)', border: '#fbbf24', text: '#92400e' },
+    { bg: 'rgba(99,102,241,0.16)', border: '#818cf8', text: '#3730a3' },
+];
 
 function getMonthStart(date) {
     return new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
@@ -49,6 +63,18 @@ function formatMoney(value) {
         return '—';
     }
     return `${n.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
+}
+
+function parseAmount(value) {
+    if (value == null || value === '') {
+        return 0;
+    }
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : 0;
+    }
+    const normalized = String(value).replace(/\s+/g, '').replace(',', '.');
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : 0;
 }
 
 function formatHours(value) {
@@ -98,6 +124,12 @@ function getMonthKey(monthStart) {
     return `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function getDriverColor(seed) {
+    const n = Number(seed);
+    const idx = Number.isNaN(n) ? 0 : Math.abs(n) % DRIVER_COLORS.length;
+    return DRIVER_COLORS[idx];
+}
+
 function ensureTooltips() {
     if (typeof $().tooltip !== 'function') {
         return;
@@ -136,21 +168,95 @@ function getPlateLabel(entry) {
     return 'Без авто';
 }
 
+function isReportDateInMonth(ymd, monthStart, monthEnd) {
+    const t = fromYmd(ymd).getTime();
+    return t >= monthStart.getTime() && t <= monthEnd.getTime();
+}
+
+/**
+ * Число смен по водителям за календарный месяц (одна строка отчёта = одна смена в день).
+ * @returns {{ driver_id: number, driver_name: string, shifts: number }[]}
+ */
+function buildDriverShiftCountsForMonth(monthData) {
+    const { monthStart, monthEnd, byDate } = monthData;
+    const map = {};
+    Object.keys(byDate || {}).forEach(function (dateKey) {
+        if (!isReportDateInMonth(dateKey, monthStart, monthEnd)) {
+            return;
+        }
+        (byDate[dateKey] || []).forEach(function (entry) {
+            const id = entry.driver_id;
+            if (id == null) {
+                return;
+            }
+            const label = entry.driver_name || `Водитель ${id}`;
+            if (!map[id]) {
+                map[id] = { driver_id: id, driver_name: label, shifts: 0 };
+            }
+            map[id].shifts += 1;
+        });
+    });
+    return Object.values(map).sort(function (a, b) {
+        if (b.shifts !== a.shifts) {
+            return b.shifts - a.shifts;
+        }
+        return String(a.driver_name).localeCompare(String(b.driver_name), 'ru');
+    });
+}
+
+function renderMonthlyShiftStats(monthData) {
+    const rows = buildDriverShiftCountsForMonth(monthData);
+    if (!rows.length) {
+        $monthlyShiftStats.empty();
+        $monthlyShiftEmpty.removeClass('d-none');
+        return;
+    }
+    $monthlyShiftEmpty.addClass('d-none');
+    const body = rows
+        .map(function (r) {
+            return `<tr><td>${escapeHtml(r.driver_name)}</td><td class="schedule-shift-count">${r.shifts}</td></tr>`;
+        })
+        .join('');
+    $monthlyShiftStats.html(
+        '<table class="table table-sm table-borderless mb-0"><thead><tr><th>Водитель</th><th class="text-right">Смен</th></tr></thead><tbody>' +
+            body +
+            '</tbody></table>'
+    );
+}
+
 function renderMonthlyPie(monthData) {
     const totals = {};
+    let monthTotal = 0;
     Object.values(monthData.byDate).forEach(function (entries) {
         (entries || []).forEach(function (entry) {
             const key = entry.driver_name || `Водитель ${entry.driver_id}`;
-            const sum = Number(entry.route_sheet_total || 0);
+            const sum = parseAmount(entry.route_sheet_total);
             if (!totals[key]) {
                 totals[key] = 0;
             }
-            totals[key] += Number.isNaN(sum) ? 0 : sum;
+            totals[key] += sum;
+            monthTotal += sum;
         });
     });
 
     const labels = Object.keys(totals).filter(function (k) { return totals[k] > 0; });
     const values = labels.map(function (k) { return Math.round(totals[k] * 100) / 100; });
+    $monthlyTotal.text(formatMoney(Math.round(monthTotal * 100) / 100));
+    const driverIdsByLabel = {};
+    Object.values(monthData.byDate).forEach(function (entries) {
+        (entries || []).forEach(function (entry) {
+            const key = entry.driver_name || `Водитель ${entry.driver_id}`;
+            if (!driverIdsByLabel[key] && entry.driver_id != null) {
+                driverIdsByLabel[key] = entry.driver_id;
+            }
+        });
+    });
+    const backgroundColors = labels.map(function (label) {
+        return getDriverColor(driverIdsByLabel[label] ?? label.length).bg.replace('0.16', '0.68');
+    });
+    const borderColors = labels.map(function (label) {
+        return getDriverColor(driverIdsByLabel[label] ?? label.length).border;
+    });
 
     if (state.monthlyPieChart) {
         state.monthlyPieChart.destroy();
@@ -169,6 +275,9 @@ function renderMonthlyPie(monthData) {
             labels: labels,
             datasets: [{
                 data: values,
+                backgroundColor: backgroundColors,
+                borderColor: borderColors,
+                borderWidth: 1,
             }],
         },
         options: {
@@ -203,7 +312,8 @@ function renderCalendar(monthData) {
         const isOtherMonth = cursor.getMonth() !== monthIndex;
         const dayData = byDate[dateKey] || [];
         const badges = dayData.slice(0, 3).map(function (entry) {
-            return `<button type="button" class="schedule-driver-badge js-day-driver" data-date="${dateKey}" data-driver="${entry.driver_id}" data-toggle="tooltip" title="${escapeHtml(driverTooltipHtml(entry))}">${escapeHtml((entry.driver_name || 'Водитель').split(' ')[0])} · ${escapeHtml(getPlateLabel(entry))}</button>`;
+            const c = getDriverColor(entry.driver_id);
+            return `<button type="button" class="schedule-driver-badge js-day-driver" style="background:${c.bg};border:1px solid ${c.border};color:${c.text};" data-date="${dateKey}" data-driver="${entry.driver_id}" data-toggle="tooltip" title="${escapeHtml(driverTooltipHtml(entry))}">${escapeHtml((entry.driver_name || 'Водитель').split(' ')[0])} · ${escapeHtml(getPlateLabel(entry))}</button>`;
         }).join('');
         const more = dayData.length > 3 ? `<div class="schedule-day-more">+${dayData.length - 3} еще</div>` : '';
 
@@ -234,12 +344,12 @@ function renderDayPanel(dateKey, monthData) {
         }).join('');
         return `
             <div class="schedule-day-driver-card">
-                <div class="font-weight-600">${escapeHtml(entry.driver_name || 'Водитель')}</div>
-                <div>Смена: ${formatHours(entry.work_hours)} (доп: ${formatHours(entry.extra_work_hours)})</div>
-                <div>Маршрут: ${formatMoney(entry.route_sheet_total)}</div>
-                <div>Ночная погрузка: ${entry.night_loading ? `Да (${formatMoney(entry.night_loading_amount || 0)})` : 'Нет'}</div>
-                <div>Ручной подъем: ${entry.manual_floor_lift ? `Да (${formatMoney(entry.manual_floor_lift_amount || 0)})` : 'Нет'}</div>
-                <div>Надбавки/штрафы: +${formatMoney(adj.bonus || 0)} / -${formatMoney(adj.penalty || 0)}</div>
+                <div class="schedule-day-driver-title"><i class="mdi mdi-account"></i> <strong>${escapeHtml(entry.driver_name || 'Водитель')}</strong></div>
+                <div class="schedule-day-line"><i class="mdi mdi-clock-outline"></i> Смена: <strong>${formatHours(entry.work_hours)}</strong> <span class="text-muted">(доп: ${formatHours(entry.extra_work_hours)})</span></div>
+                <div class="schedule-day-line schedule-day-line--money"><i class="mdi mdi-cash-multiple"></i> Маршрут: <strong>${formatMoney(entry.route_sheet_total)}</strong></div>
+                <div class="schedule-day-line"><i class="mdi mdi-weather-night"></i> Ночная погрузка: ${entry.night_loading ? `<span class="schedule-chip schedule-chip--ok">Да</span> <strong>${formatMoney(entry.night_loading_amount || 0)}</strong>` : '<span class="schedule-chip">Нет</span>'}</div>
+                <div class="schedule-day-line"><i class="mdi mdi-elevator-passenger-off"></i> Ручной подъем: ${entry.manual_floor_lift ? `<span class="schedule-chip schedule-chip--warn">Да</span> <strong>${formatMoney(entry.manual_floor_lift_amount || 0)}</strong>` : '<span class="schedule-chip">Нет</span>'}</div>
+                <div class="schedule-day-line"><i class="mdi mdi-scale-balance"></i> Надбавки/штрафы: <strong class="schedule-plus">+${formatMoney(adj.bonus || 0)}</strong> / <strong class="schedule-minus">-${formatMoney(adj.penalty || 0)}</strong></div>
                 ${adjItems ? `<ul class="mb-0 mt-1 pl-3">${adjItems}</ul>` : ''}
             </div>
         `;
@@ -345,6 +455,7 @@ async function refresh() {
             state.selectedDateKey = toYmd(monthStart);
         }
         renderDayPanel(state.selectedDateKey, monthData);
+        renderMonthlyShiftStats(monthData);
         renderMonthlyPie(monthData);
         $alert.addClass('d-none');
     } catch (e) {

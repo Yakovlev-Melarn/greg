@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\ProductQueue;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
@@ -203,27 +202,30 @@ class SimService
      */
     public static function validateResponse(array $response): bool
     {
-        if (!isset($response['items'][0])) {
-            throw new Exception('Invalid API response format');
+        if (! isset($response['items'][0])) {
+            if (! isset($response['_meta'])) {
+                throw new Exception('Invalid API response format');
+            } else {
+                throw new Exception('Product not found');
+            }
         }
         $item = $response['items'][0];
-        if (!self::calculateStockQuantity($item)) {
+        if (! self::calculateStockQuantity($item)) {
             throw new Exception('Amount is null');
         }
         if (self::checkMinQuantity($item)) {
             throw new Exception('Min quantity > 1');
         }
+
         return true;
     }
 
-
     public static function checkMinQuantity(array $item): bool
     {
-        return (
+        return
             (isset($item['minimum_order_quantity']) && $item['minimum_order_quantity'] > 1) ||
             (isset($item['cart_min_diff']) && $item['cart_min_diff'] > 1) ||
-            (isset($item['min_qty']) && $item['min_qty'] > 1)
-        );
+            (isset($item['min_qty']) && $item['min_qty'] > 1);
     }
 
     public static function calculateStockQuantity(array $item): int
@@ -231,6 +233,7 @@ class SimService
         if (isset($item['balance']) && $item['balance']) {
             return 5;
         }
+
         return isset($item['isEnough']) && $item['isEnough'] ? 5 : 0;
     }
 
@@ -240,9 +243,9 @@ class SimService
     public static function getProductDimensions(array $item, float $productVolume, ?string $sku = null): array
     {
         $hasMissingDimension =
-            !isset($item['depth']) || $item['depth'] === 0 ||
-            !isset($item['width']) || $item['width'] === 0 ||
-            !isset($item['height']) || $item['height'] === 0;
+            ! isset($item['depth']) || $item['depth'] === 0 ||
+            ! isset($item['width']) || $item['width'] === 0 ||
+            ! isset($item['height']) || $item['height'] === 0;
         if ($hasMissingDimension && $productVolume > 0) {
             $calculatedDimensions = self::calculateDimensionsCm($productVolume);
             $dimensions = [
@@ -251,9 +254,10 @@ class SimService
                 'width' => $calculatedDimensions['width'],
                 'weight_kg' => (isset($item['weight']) && $item['weight'] !== 0)
                     ? round($item['weight'] / 1000, 2)
-                    : 1
+                    : 1,
             ];
             self::assertDimensionsWithinLimit($dimensions, $sku);
+
             return $dimensions;
         }
         $dimensions = [
@@ -262,9 +266,10 @@ class SimService
             'width' => (isset($item['height']) && $item['height'] !== 0) ? $item['height'] : 10,
             'weight_kg' => (isset($item['weight']) && $item['weight'] !== 0)
                 ? round($item['weight'] / 1000, 2)
-                : 1
+                : 1,
         ];
         self::assertDimensionsWithinLimit($dimensions, $sku);
+
         return $dimensions;
     }
 
@@ -277,7 +282,7 @@ class SimService
         if ($maxDimension > 100) {
             $skuLabel = $sku ? " для SKU {$sku}" : '';
             throw new Exception(
-                "Товар{$skuLabel} помещен в карантин: одна из сторон больше 100 см " .
+                "Товар{$skuLabel} помещен в карантин: одна из сторон больше 100 см ".
                 "(depth={$dimensions['depth']}, length={$dimensions['length']}, width={$dimensions['width']})"
             );
         }
@@ -290,10 +295,11 @@ class SimService
             throw new InvalidArgumentException('Объем должен быть положительным числом');
         }
         $sideLength = pow($volumeCm3, 1 / 3);
+
         return [
             'length' => round($sideLength, 2),    // длина в см
             'width' => round($sideLength, 2),    // ширина в см
-            'height' => round($sideLength, 2)     // высота в см
+            'height' => round($sideLength, 2),     // высота в см
         ];
     }
 }

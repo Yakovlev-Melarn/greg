@@ -163,6 +163,13 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        $selectiveCodes = $this->normalizeSupplierVendorCodes($params['supplier_vendor_codes'] ?? null);
+        if ($selectiveCodes !== []) {
+            $this->syncCardsBySupplierVendorCodes($seller, $selectiveCodes, $params);
+
+            return;
+        }
+
         $service = new WildberriesService($seller->wb_api_key, []);
         $result = $service->getCardList($context->settings);
         $cards = $result['data']['cards'] ?? [];
@@ -256,6 +263,98 @@ class WbJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
+     * Только указанные supplierVendorCode (фильтр textSearch WB), без полного обхода каталога и без prune orphan.
+     *
+     * @param  list<string>  $codes
+     */
+    private function syncCardsBySupplierVendorCodes(Sellers $seller, array $codes, array $params): void
+    {
+        if (! empty($params['cards_sync_notify_start'])) {
+            $this->notifyCardsSyncStarted($params, $seller);
+        }
+
+        $service = new WildberriesService($seller->wb_api_key, []);
+        $processedCards = 0;
+
+        foreach ($codes as $vendorCode) {
+            $cursorNmId = null;
+            $cursorUpdatedAt = null;
+
+            do {
+                $cursor = ['limit' => 100];
+                if ($cursorNmId !== null) {
+                    $cursor['nmID'] = $cursorNmId;
+                }
+                if ($cursorUpdatedAt !== null) {
+                    $cursor['updatedAt'] = $cursorUpdatedAt;
+                }
+
+                $settings = [
+                    'settings' => [
+                        'sort' => ['ascending' => true],
+                        'cursor' => $cursor,
+                        'filter' => [
+                            'textSearch' => $vendorCode,
+                            'withPhoto' => -1,
+                        ],
+                    ],
+                ];
+
+                $result = $service->getCardList($settings);
+                $cards = $result['data']['cards'] ?? [];
+                $cursorData = $result['data']['cursor'] ?? [];
+                $cursorNmId = $cursorData['nmID'] ?? null;
+                $cursorUpdatedAt = $cursorData['updatedAt'] ?? null;
+                $total = (int) ($cursorData['total'] ?? 0);
+
+                $processedCards += count($cards);
+                $this->updateCard($cards, $seller, null, null, true);
+
+                $hasMore = $total === 100;
+                if ($hasMore && $cursorNmId === null && $cursorUpdatedAt === null) {
+                    Log::warning('WbJob selective sync: пагинация оборвалась без курсора', [
+                        'seller_id' => $seller->id,
+                        'vendorCode' => $vendorCode,
+                    ]);
+                    break;
+                }
+            } while ($hasMore);
+        }
+
+        $this->notifyCardsSyncFinishedIfTracked($params, $seller, $processedCards);
+    }
+
+    /**
+     * @param  mixed  $raw
+     * @return list<string>
+     */
+    private function normalizeSupplierVendorCodes($raw): array
+    {
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+
+        if (is_string($raw)) {
+            $parts = preg_split('/[\r\n]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $raw = $parts;
+        }
+
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $item) {
+            $s = trim((string) $item);
+            if ($s !== '') {
+                $out[] = $s;
+            }
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    /**
      * nmID из ответа WB (включая позиции без сохранённого фото — они всё равно есть в каталоге).
      *
      * @return list<int>
@@ -290,7 +389,8 @@ class WbJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * Удаляет из cards и skuMapping записи продавца, которых нет в полном списке nmID WB после полного обхода каталога.
+     * После полного обхода WB: блокировка «висячих» skuMapping (с проверкой WB), подстановка sku с nmID.
+     * Новые orphan_for_clone здесь не выставляются — см. комментарий в теле метода.
      */
     private function pruneLocalCardsMissingFromWbCatalog(Sellers $seller, array $params, CardListContext $context): void
     {
@@ -299,20 +399,28 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         }
 
         $wbSet = array_keys($params['wb_nm_ids_seen'] ?? []);
-        $this->pruneLocalCardsRemovedFromWb($seller, $wbSet);
-        $this->reconcileCardsWithSkuMappingAfterFullCatalog($seller);
+        // Полный обход каталога не должен порождать новых сирот: накопленный wb_nm_ids_seen может быть неполным
+        // (пагинация, сбои API), а пометка orphan_for_clone здесь необратимо портит данные.
+        $this->pruneLocalCardsRemovedFromWb($seller, $wbSet, markNewOrphans: false);
+        $this->reconcileCardsWithSkuMappingAfterFullCatalog($seller, markNewOrphans: false);
+        Log::info('WbJob full catalog prune: пропущена постановка orphan_for_clone для новых случаев (только backfill sku и блокировка mapping)', [
+            'seller_id' => $seller->id,
+            'wb_nm_ids_count' => count($wbSet),
+        ]);
     }
 
     /**
-     * После полного обхода WB: очистка «висячих» skuMapping, подстановка sku с nmID, удаление висячих карточек (&gt; WB) через корзину WB.
+     * После полного обхода WB: блокировка «висячих» skuMapping (с проверкой WB), подстановка sku с nmID, пометка непривязанных карточек с пустым sku как сирот.
+     *
+     * @param  bool  $markNewOrphans  при false не выставляется orphan_for_clone (режим полного обхода каталога).
      */
-    private function reconcileCardsWithSkuMappingAfterFullCatalog(Sellers $seller): void
+    private function reconcileCardsWithSkuMappingAfterFullCatalog(Sellers $seller, bool $markNewOrphans = true): void
     {
-        $deletedMappings = $this->deleteSkuMappingsWithoutCards();
-        if ($deletedMappings > 0) {
-            Log::info('WbJob removed skuMapping rows without matching cards', [
+        $blockedMappings = $this->blockUnlinkedSkuMappingsAfterWbValidation($seller);
+        if ($blockedMappings > 0) {
+            Log::info('WbJob blocked skuMapping rows without matching cards (after WB validation)', [
                 'seller_id' => $seller->id,
-                'deleted_mappings' => $deletedMappings,
+                'blocked_mappings' => $blockedMappings,
             ]);
         }
 
@@ -324,21 +432,206 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             ]);
         }
 
-        $trashed = $this->trashUnmappedSupplierGt10CardsAndDelete($seller);
-        if ($trashed > 0) {
-            Log::info('WbJob moved unmapped orphan cards (supplier>10, sku null) to WB trash and removed locally', [
+        if (! $markNewOrphans) {
+            return;
+        }
+
+        $markedOrphans = $this->trashUnmappedSupplierGt10CardsAndDelete($seller);
+        if ($markedOrphans > 0) {
+            Log::info('WbJob marked unmapped cards (supplier>10, sku empty) as orphan_for_clone instead of deleting', [
                 'seller_id' => $seller->id,
-                'removed_cards' => $trashed,
+                'marked_cards' => $markedOrphans,
             ]);
         }
     }
 
     /**
-     * Строки skuMapping без соответствующей карточки (Sima: origSku = vendorCode, WB: wbSku = vendorCode).
+     * Дописывает cards.sku из skuMapping.wbSku для привязанных карточек с пустым sku.
      */
-    private function deleteSkuMappingsWithoutCards(): int
+    private function backfillNullCardSkuFromSkuMapping(Sellers $seller): int
     {
+        $sellerId = $seller->id;
+
+        $n20 = DB::update(
+            'UPDATE cards SET sku = (
+                SELECT sm.wbSku FROM skuMapping sm WHERE sm.origSku = cards.vendorCode
+                  AND (sm.blocked = 0 OR sm.blocked IS NULL) LIMIT 1
+            )
+            WHERE sellerID = ?
+              AND supplier = 20
+              AND sku IS NULL
+              AND EXISTS (SELECT 1 FROM skuMapping sm WHERE sm.origSku = cards.vendorCode AND (sm.blocked = 0 OR sm.blocked IS NULL))',
+            [$sellerId]
+        );
+
+        $n10 = DB::update(
+            'UPDATE cards SET sku = (
+                SELECT sm.wbSku FROM skuMapping sm WHERE sm.wbSku = cards.vendorCode
+                  AND (sm.blocked = 0 OR sm.blocked IS NULL) LIMIT 1
+            )
+            WHERE sellerID = ?
+              AND supplier = 10
+              AND sku IS NULL
+              AND EXISTS (SELECT 1 FROM skuMapping sm WHERE sm.wbSku = cards.vendorCode AND (sm.blocked = 0 OR sm.blocked IS NULL))',
+            [$sellerId]
+        );
+
+        return (int) $n20 + (int) $n10;
+    }
+
+    /**
+     * Карточки с supplier &gt; 10 (не только WB), без строки в skuMapping и с пустым sku — только пометка сироты (без корзины WB и без удаления).
+     */
+    private function trashUnmappedSupplierGt10CardsAndDelete(Sellers $seller): int
+    {
+        $marked = 0;
+
+        CardsModel::query()
+            ->where('sellerID', $seller->id)
+            ->where('supplier', '>', 10)
+            ->where(function ($q) {
+                $q->whereNull('sku')->orWhere('sku', '');
+            })
+            ->orderBy('id')
+            ->chunkById(50, function ($cards) use (&$marked) {
+                foreach ($cards as $card) {
+                    if ($this->cardHasMatchingSkuMapping($card)) {
+                        continue;
+                    }
+                    if (! $this->cardSkuIsEmpty($card)) {
+                        continue;
+                    }
+                    $nmId = (int) $card->nmID;
+                    if ($nmId <= 0) {
+                        Log::warning('WbJob skip orphan mark (supplier>10): card has no nmID', [
+                            'card_id' => $card->id,
+                            'seller_id' => $card->sellerID,
+                        ]);
+
+                        continue;
+                    }
+                    $card->orphan_for_clone = true;
+                    $card->save();
+                    $marked++;
+                }
+            });
+
+        return $marked;
+    }
+
+    private function cardHasMatchingSkuMapping(CardsModel $card): bool
+    {
+        $supplier = (int) $card->supplier;
+        $vc = (string) ($card->vendorCode ?? '');
+        if ($vc === '') {
+            return false;
+        }
+        if ($supplier === 20) {
+            return SkuMapping::query()
+                ->where('origSku', $vc)
+                ->where(function ($q) {
+                    $q->where('blocked', false)->orWhereNull('blocked');
+                })
+                ->exists();
+        }
+        if ($supplier === 10) {
+            return SkuMapping::query()
+                ->where('wbSku', $vc)
+                ->where(function ($q) {
+                    $q->where('blocked', false)->orWhereNull('blocked');
+                })
+                ->exists();
+        }
+
         return SkuMapping::query()
+            ->where(function ($q) use ($vc) {
+                $q->where('origSku', $vc)->orWhere('wbSku', $vc);
+            })
+            ->where(function ($q) {
+                $q->where('blocked', false)->orWhereNull('blocked');
+            })
+            ->exists();
+    }
+
+    /**
+     * @param  list<int>  $wbNmIds
+     * @param  bool  $markNewOrphans  при false не выставляется orphan_for_clone для карточек «не попали в wb_nm_ids_seen» (полный обход каталога).
+     */
+    private function pruneLocalCardsRemovedFromWb(Sellers $seller, array $wbNmIds, bool $markNewOrphans = true): void
+    {
+        $wbLookup = [];
+        foreach ($wbNmIds as $id) {
+            $wbLookup[(int) $id] = true;
+        }
+
+        $locals = CardsModel::query()
+            ->where('sellerID', $seller->id)
+            ->get();
+
+        $removed = 0;
+        $markedOrphans = 0;
+        foreach ($locals as $card) {
+            $nmId = (int) $card->nmID;
+            if ($nmId === 0) {
+                continue;
+            }
+            if (isset($wbLookup[$nmId])) {
+                continue;
+            }
+
+            if ($this->cardSkuIsEmpty($card)) {
+                if ($markNewOrphans) {
+                    $card->orphan_for_clone = true;
+                    $card->save();
+                    $markedOrphans++;
+                }
+
+                continue;
+            }
+
+            if ($this->localCardStillPresentInWbSellerOrPublicCatalog($seller, $card)) {
+                Log::info('WbJob pruneLocalCardsRemovedFromWb: пропуск удаления карточки — товар найден проверкой WB (supplierVendorCode / nmID)', [
+                    'seller_id' => $seller->id,
+                    'card_id' => $card->id,
+                    'nmID' => $nmId,
+                    'supplierVendorCode' => $card->supplierVendorCode,
+                ]);
+
+                continue;
+            }
+
+            DB::transaction(function () use ($card) {
+                $this->blockSkuMappingsForCard($card);
+                $card->delete();
+            });
+            $removed++;
+        }
+
+        if ($removed > 0) {
+            Log::info('WbJob removed local cards absent from WB catalog', [
+                'seller_id' => $seller->id,
+                'removed' => $removed,
+            ]);
+        }
+
+        if ($markedOrphans > 0) {
+            Log::info('WbJob marked local cards absent from WB catalog as orphan (empty sku), skipped delete', [
+                'seller_id' => $seller->id,
+                'marked_orphans' => $markedOrphans,
+            ]);
+        }
+    }
+
+    /**
+     * Строки skuMapping без карточки в БД: не удаляем — блокируем только после проверки, что товара нет в кабинете WB (textSearch + basket).
+     */
+    private function blockUnlinkedSkuMappingsAfterWbValidation(Sellers $seller): int
+    {
+        $blocked = 0;
+        SkuMapping::query()
+            ->where(function ($q) {
+                $q->where('blocked', false)->orWhereNull('blocked');
+            })
             ->whereNotExists(function ($q) {
                 $q->selectRaw('1')
                     ->from('cards as c')
@@ -352,152 +645,190 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                         });
                     });
             })
-            ->delete();
-    }
-
-    /**
-     * Дописывает cards.sku из skuMapping.wbSku для привязанных карточек с пустым sku.
-     */
-    private function backfillNullCardSkuFromSkuMapping(Sellers $seller): int
-    {
-        $sellerId = $seller->id;
-
-        $n20 = DB::update(
-            'UPDATE cards SET sku = (
-                SELECT sm.wbSku FROM skuMapping sm WHERE sm.origSku = cards.vendorCode LIMIT 1
-            )
-            WHERE sellerID = ?
-              AND supplier = 20
-              AND sku IS NULL
-              AND EXISTS (SELECT 1 FROM skuMapping sm WHERE sm.origSku = cards.vendorCode)',
-            [$sellerId]
-        );
-
-        $n10 = DB::update(
-            'UPDATE cards SET sku = (
-                SELECT sm.wbSku FROM skuMapping sm WHERE sm.wbSku = cards.vendorCode LIMIT 1
-            )
-            WHERE sellerID = ?
-              AND supplier = 10
-              AND sku IS NULL
-              AND EXISTS (SELECT 1 FROM skuMapping sm WHERE sm.wbSku = cards.vendorCode)',
-            [$sellerId]
-        );
-
-        return (int) $n20 + (int) $n10;
-    }
-
-    /**
-     * Карточки с supplier &gt; 10 (не только WB), без строки в skuMapping и с пустым sku — в корзину WB и удаление из БД.
-     */
-    private function trashUnmappedSupplierGt10CardsAndDelete(Sellers $seller): int
-    {
-        $service = new WildberriesService($seller->wb_api_key, []);
-        $removed = 0;
-
-        CardsModel::query()
-            ->where('sellerID', $seller->id)
-            ->where('supplier', '>', 10)
-            ->whereNull('sku')
             ->orderBy('id')
-            ->chunkById(50, function ($cards) use ($service, &$removed) {
-                foreach ($cards as $card) {
-                    if ($this->cardHasMatchingSkuMapping($card)) {
+            ->chunkById(50, function ($mappings) use ($seller, &$blocked) {
+                foreach ($mappings as $mapping) {
+                    if ($this->skuMappingRowStillActiveInSellerCatalog($seller, $mapping)) {
                         continue;
                     }
-                    $nmId = (int) $card->nmID;
-                    if ($nmId <= 0) {
-                        Log::warning('WbJob skip trash: card has no nmID', [
-                            'card_id' => $card->id,
-                            'seller_id' => $card->sellerID,
-                        ]);
-
-                        continue;
-                    }
-                    try {
-                        if ($service->moveCardsToTrash([$nmId])) {
-                            $card->delete();
-                            $removed++;
-                        } else {
-                            Log::warning('WbJob trash API failed for orphan card', [
-                                'card_id' => $card->id,
-                                'nmID' => $nmId,
-                            ]);
-                        }
-                    } catch (\Throwable $e) {
-                        Log::warning('WbJob trash orphan card exception', [
-                            'card_id' => $card->id,
-                            'nmID' => $nmId,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
+                    $mapping->blocked = true;
+                    $mapping->save();
+                    $blocked++;
                 }
             });
 
-        return $removed;
-    }
-
-    private function cardHasMatchingSkuMapping(CardsModel $card): bool
-    {
-        $supplier = (int) $card->supplier;
-        $vc = (string) ($card->vendorCode ?? '');
-        if ($vc === '') {
-            return false;
-        }
-        if ($supplier === 20) {
-            return SkuMapping::query()->where('origSku', $vc)->exists();
-        }
-        if ($supplier === 10) {
-            return SkuMapping::query()->where('wbSku', $vc)->exists();
-        }
-
-        return SkuMapping::query()
-            ->where(function ($q) use ($vc) {
-                $q->where('origSku', $vc)->orWhere('wbSku', $vc);
-            })
-            ->exists();
+        return $blocked;
     }
 
     /**
-     * @param  list<int>  $wbNmIds
+     * Пагинация get/cards/list по textSearch; при ошибке API считаем «не уверены» и не блокируем строку skuMapping.
+     *
+     * @param  \Closure(array<string, mixed>): bool  $matches
      */
-    private function pruneLocalCardsRemovedFromWb(Sellers $seller, array $wbNmIds): void
+    private function sellerCatalogAnyCardMatches(Sellers $seller, string $textSearch, \Closure $matches): bool
     {
-        $wbLookup = [];
-        foreach ($wbNmIds as $id) {
-            $wbLookup[(int) $id] = true;
+        $apiKey = trim((string) ($seller->wb_api_key ?? ''));
+        if ($apiKey === '' || trim($textSearch) === '') {
+            return false;
         }
 
-        $locals = CardsModel::query()
-            ->where('sellerID', $seller->id)
-            ->get();
+        try {
+            $service = new WildberriesService($apiKey, []);
+            $cursorNmId = null;
+            $cursorUpdatedAt = null;
 
-        $removed = 0;
-        foreach ($locals as $card) {
-            $nmId = (int) $card->nmID;
-            if ($nmId === 0) {
-                continue;
-            }
-            if (isset($wbLookup[$nmId])) {
-                continue;
-            }
+            do {
+                $cursor = ['limit' => 100];
+                if ($cursorNmId !== null) {
+                    $cursor['nmID'] = $cursorNmId;
+                }
+                if ($cursorUpdatedAt !== null) {
+                    $cursor['updatedAt'] = $cursorUpdatedAt;
+                }
 
-            DB::transaction(function () use ($card) {
-                $this->deleteSkuMappingsForCard($card);
-                $card->delete();
-            });
-            $removed++;
-        }
+                $settings = [
+                    'settings' => [
+                        'sort' => ['ascending' => true],
+                        'cursor' => $cursor,
+                        'filter' => [
+                            'textSearch' => $textSearch,
+                            'withPhoto' => -1,
+                        ],
+                    ],
+                ];
 
-        if ($removed > 0) {
-            Log::info('WbJob removed local cards absent from WB catalog', [
+                $result = $service->getCardList($settings);
+                if (($result['success'] ?? false) !== true) {
+                    return true;
+                }
+
+                $payload = $result['data'] ?? [];
+                $cards = $payload['cards'] ?? [];
+                foreach ($cards as $card) {
+                    if ($matches($card)) {
+                        return true;
+                    }
+                }
+
+                $cursorData = $payload['cursor'] ?? [];
+                $cursorNmId = $cursorData['nmID'] ?? null;
+                $cursorUpdatedAt = $cursorData['updatedAt'] ?? null;
+                $total = (int) ($cursorData['total'] ?? 0);
+                $hasMore = $total === 100 && ($cursorNmId !== null || $cursorUpdatedAt !== null);
+                if ($hasMore && $cursorNmId === null && $cursorUpdatedAt === null) {
+                    Log::warning('WbJob SkuMapping WB validation: pagination ended without cursor', [
+                        'seller_id' => $seller->id,
+                        'textSearch' => $textSearch,
+                    ]);
+                    break;
+                }
+            } while ($hasMore);
+
+            return false;
+        } catch (\Throwable $e) {
+            Log::warning('WbJob SkuMapping WB validation: getCardList exception', [
                 'seller_id' => $seller->id,
-                'removed' => $removed,
+                'textSearch' => $textSearch,
+                'error' => $e->getMessage(),
             ]);
+
+            return true;
         }
     }
 
-    private function deleteSkuMappingsForCard(CardsModel $card): void
+    private function skuMappingRowStillActiveInSellerCatalog(Sellers $seller, SkuMapping $mapping): bool
+    {
+        $apiKey = trim((string) ($seller->wb_api_key ?? ''));
+        if ($apiKey === '') {
+            return true;
+        }
+
+        $orig = trim((string) $mapping->origSku);
+        $wb = trim((string) $mapping->wbSku);
+        $wbNmId = ($wb !== '' && ctype_digit($wb)) ? (int) $wb : 0;
+
+        foreach (array_unique(array_filter([$orig, $wb])) as $needle) {
+            $found = $this->sellerCatalogAnyCardMatches($seller, $needle, function (array $c) use ($orig, $wb, $wbNmId) {
+                $vc = trim((string) ($c['vendorCode'] ?? ''));
+                $nm = (int) ($c['nmID'] ?? 0);
+                if ($orig !== '' && $vc === $orig) {
+                    return true;
+                }
+                if ($wb !== '' && $vc === $wb) {
+                    return true;
+                }
+                if ($wbNmId > 0 && $nm === $wbNmId) {
+                    return true;
+                }
+
+                return false;
+            });
+            if ($found) {
+                return true;
+            }
+        }
+
+        if ($wbNmId > 0) {
+            try {
+                $info = WBContent::getCardInfo($wbNmId);
+                if (is_array($info) && (! empty($info['id']) || ! empty($info['imt_name']))) {
+                    return true;
+                }
+            } catch (\Throwable) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Перед удалением локальной карточки (nmID не попал в полный список обхода): не трогаем, если по supplierVendorCode / nmID товар ещё виден в WB.
+     */
+    private function localCardStillPresentInWbSellerOrPublicCatalog(Sellers $seller, CardsModel $card): bool
+    {
+        $nmId = (int) $card->nmID;
+        if ($nmId > 0) {
+            try {
+                $info = WBContent::getCardInfo($nmId);
+                if (is_array($info) && (! empty($info['id']) || ! empty($info['imt_name']))) {
+                    return true;
+                }
+            } catch (\Throwable) {
+                return true;
+            }
+        }
+
+        $apiKey = trim((string) ($seller->wb_api_key ?? ''));
+        if ($apiKey === '') {
+            return true;
+        }
+
+        $supplierVendorCode = trim((string) ($card->supplierVendorCode ?? ''));
+        if ($supplierVendorCode !== '') {
+            if ($this->sellerCatalogAnyCardMatches($seller, $supplierVendorCode, function (array $c) use ($supplierVendorCode, $nmId) {
+                $vc = trim((string) ($c['vendorCode'] ?? ''));
+                $nm = (int) ($c['nmID'] ?? 0);
+
+                return ($supplierVendorCode !== '' && $vc === $supplierVendorCode)
+                    || ($nmId > 0 && $nm === $nmId);
+            })) {
+                return true;
+            }
+        }
+
+        if ($nmId > 0) {
+            if ($this->sellerCatalogAnyCardMatches($seller, (string) $nmId, function (array $c) use ($nmId) {
+                return (int) ($c['nmID'] ?? 0) === $nmId;
+            })) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function blockSkuMappingsForCard(CardsModel $card): void
     {
         $supplier = (int) $card->supplier;
         $vendorCode = (string) ($card->vendorCode ?? '');
@@ -505,15 +836,29 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        $scope = function ($q): void {
+            $q->where('blocked', false)->orWhereNull('blocked');
+        };
+
         if ($supplier === 20) {
-            SkuMapping::query()->where('origSku', $vendorCode)->delete();
+            SkuMapping::query()->where('origSku', $vendorCode)->where($scope)->update(['blocked' => true]);
 
             return;
         }
 
         if ($supplier === 10) {
-            SkuMapping::query()->where('wbSku', $vendorCode)->delete();
+            SkuMapping::query()->where('wbSku', $vendorCode)->where($scope)->update(['blocked' => true]);
         }
+    }
+
+    private function cardSkuIsEmpty(CardsModel $card): bool
+    {
+        $sku = $card->sku;
+        if ($sku === null) {
+            return true;
+        }
+
+        return trim((string) $sku) === '';
     }
 
     /**
@@ -645,8 +990,8 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         }
 
         $seller = $warehouse->seller;
-        $routeSupplier = $warehouse->supplier;
-        $cardSupplier = $routeSupplier === null ? 10 : (int) $routeSupplier;
+        $supplierIds = $warehouse->effectiveStockSupplierIds();
+        $simaVia = (string) ($warehouse->sima_stock_via ?? SellerWarehouse::SIMA_STOCK_VIA_WB_CATALOG);
 
         try {
             // Сразу обновляем время последнего запуска, иначе `stocks:dispatch-due` (каждую минуту)
@@ -655,20 +1000,37 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                 'stock_last_run_at' => now(),
                 'stock_last_run_result' => [
                     'status' => 'running',
-                    'supplier' => $cardSupplier,
+                    'stock_supplier_ids' => $supplierIds,
+                    'sima_stock_via' => $simaVia,
+                    'supplier' => SellerWarehouse::legacySupplierFromStockSupplierIds($supplierIds),
                 ],
             ])->save();
 
-            $cards = $seller->cards()
-                ->where('supplier', $cardSupplier)
-                ->where('supplier', '>', 0)
-                ->get();
-
-            $vendorToChrtMap = $this->buildVendorToChrtMap($cards);
-
-            $stockRows = $cardSupplier === 20
-                ? $this->fetchSimaStockRows($cards, $vendorToChrtMap)
-                : $this->fetchWbStockRows($cards, $vendorToChrtMap);
+            $stockRows = [];
+            $perSupplier = [];
+            foreach ($supplierIds as $supplierId) {
+                $cards = $seller->cards()
+                    ->where('supplier', $supplierId)
+                    ->where('supplier', '>', 0)
+                    ->get();
+                $vendorToChrtMap = $this->buildVendorToChrtMap($cards);
+                if ($supplierId === 20) {
+                    $useSimaApi = $simaVia === SellerWarehouse::SIMA_STOCK_VIA_SIMA_API;
+                    $rows = $useSimaApi
+                        ? $this->fetchSimaStockRows($cards, $vendorToChrtMap)
+                        : $this->fetchWbStockRows($cards, $vendorToChrtMap);
+                } else {
+                    $rows = $this->fetchWbStockRows($cards, $vendorToChrtMap);
+                }
+                $stockRows = $this->mergeWarehouseStockRowsLastWins($stockRows, $rows);
+                $perSupplier[(string) $supplierId] = [
+                    'cards' => $cards->count(),
+                    'fetched' => count($rows),
+                    'source' => $supplierId === 20
+                        ? ($simaVia === SellerWarehouse::SIMA_STOCK_VIA_SIMA_API ? 'sima_api' : 'wb_catalog')
+                        : 'wb_catalog',
+                ];
+            }
 
             $collectedAt = Carbon::now();
             $runKey = null;
@@ -703,7 +1065,10 @@ class WbJob implements ShouldBeUnique, ShouldQueue
 
             $resultMeta = [
                 'status' => 'ok',
-                'supplier' => $cardSupplier,
+                'stock_supplier_ids' => $supplierIds,
+                'sima_stock_via' => $simaVia,
+                'supplier' => SellerWarehouse::legacySupplierFromStockSupplierIds($supplierIds),
+                'per_supplier' => $perSupplier,
                 'fetched' => count($stockRows),
                 'stored' => count($stockRows),
                 'wb_candidates' => $persist['wb_candidates'],
@@ -772,6 +1137,26 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             }
             $this->collectStocks(['warehouse_id' => $warehouse->id]);
         }
+    }
+
+    /**
+     * Объединение строк остатков по chrtId: при коллизии побеждает последний источник (порядок в stock_supplier_ids).
+     *
+     * @param  list<array{chrtId: mixed, amount: int}>  $base
+     * @param  list<array{chrtId: mixed, amount: int}>  $next
+     * @return list<array{chrtId: mixed, amount: int}>
+     */
+    private function mergeWarehouseStockRowsLastWins(array $base, array $next): array
+    {
+        $byChrt = [];
+        foreach ($base as $row) {
+            $byChrt[(int) $row['chrtId']] = $row;
+        }
+        foreach ($next as $row) {
+            $byChrt[(int) $row['chrtId']] = $row;
+        }
+
+        return array_values($byChrt);
     }
 
     private function buildVendorToChrtMap(Collection $cards): array
@@ -1050,12 +1435,14 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         array $cardsData,
         Sellers $seller,
         int|string|null $sourceSku = null,
-        int|string|null $queueWbSku = null
+        int|string|null $queueWbSku = null,
+        bool $allowPersistWithoutPhoto = false,
     ): void {
         foreach ($cardsData as $card) {
             $photo = '';
-            if (isset($card['photos']) && count($card['photos']) > 0) {
-                $photo = $card['photos'][0]['c246x328'];
+            if (! empty($card['photos'][0]) && is_array($card['photos'][0])) {
+                $p0 = $card['photos'][0];
+                $photo = (string) ($p0['c246x328'] ?? $p0['square'] ?? $p0['tm'] ?? '');
             }
 
             $supplierVendorCode = (string) ($card['vendorCode'] ?? '');
@@ -1063,14 +1450,18 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                 continue;
             }
 
+            $nmId = (int) ($card['nmID'] ?? 0);
+
             if ($photo === '') {
                 // Фото ещё не готовы: запускаем загрузку и откладываем повторный fetch карточки.
+                // nmID карточки из списка — запасной источник для basket/getCardInfo (префиксы PL-T / нестандартный vendorCode в ответе WB).
                 $queued = self::queuePhotoUploadAndFollowUpFetch(
                     (int) $seller->id,
-                    (int) $card['nmID'],
+                    $nmId,
                     $supplierVendorCode,
                     $sourceSku,
-                    $queueWbSku
+                    $queueWbSku,
+                    $nmId > 0 ? $nmId : null,
                 );
                 if (! $queued) {
                     Log::warning('WbJob updateCard skipped: photo source id is not resolved', [
@@ -1082,8 +1473,12 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                     ]);
                 }
 
-                // Не сохраняем карточку до появления фото.
-                continue;
+                if (! $allowPersistWithoutPhoto) {
+                    // Полный обход каталога: не сохраняем карточку до появления фото в списке.
+                    continue;
+                }
+
+                // Выборочная синхронизация: сохраняем строку без превью — превью подтянется после uploadPhotos / повторного fetch.
             }
 
             $data = [
@@ -1101,10 +1496,24 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                 'sku' => $queueWbSku,
             ];
 
-            $seller->cards()->updateOrCreate(
+            $cardModel = $seller->cards()->updateOrCreate(
                 ['nmID' => $card['nmID']],
                 $data
             );
+
+            if ($cardModel->wb_created_at === null && ! empty($card['createdAt'])) {
+                try {
+                    $cardModel->wb_created_at = Carbon::parse($card['createdAt']);
+                    $cardModel->save();
+                } catch (\Throwable $e) {
+                    Log::warning('WbJob updateCard: не удалось разобрать createdAt из WB', [
+                        'seller_id' => $seller->id,
+                        'nmID' => $card['nmID'] ?? null,
+                        'createdAt' => $card['createdAt'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
         }
     }
 
@@ -1118,10 +1527,16 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         string $supplierVendorCode,
         int|string|null $sourceSku = null,
         int|string|null $queueWbSku = null,
+        ?int $photoSourceFallbackNmId = null,
         bool $manualPhotoRefresh = false,
         ?int $cardId = null,
     ): bool {
-        $photoSourceSupplierId = self::resolvePhotoSourceSupplierId($supplierVendorCode, $sourceSku, $queueWbSku);
+        $photoSourceSupplierId = self::resolvePhotoSourceSupplierId(
+            $supplierVendorCode,
+            $sourceSku,
+            $queueWbSku,
+            $photoSourceFallbackNmId,
+        );
         if ($photoSourceSupplierId <= 0) {
             return false;
         }
@@ -1146,35 +1561,50 @@ class WbJob implements ShouldBeUnique, ShouldQueue
         return true;
     }
 
-    private static function resolvePhotoSourceSupplierId(
+    public static function resolvePhotoSourceSupplierId(
         string $supplierVendorCode,
         int|string|null $sourceSku = null,
-        int|string|null $queueWbSku = null
+        int|string|null $queueWbSku = null,
+        ?int $photoSourceFallbackNmId = null,
     ): int {
         $supplierCode = strtoupper($supplierVendorCode[0] ?? '');
 
-        // Для Sima-Land в clone-потоке приоритет у queueWbSku, затем wbSku из SkuMapping, затем sourceSku.
+        // Sima-Land (артикулы S…, в т.ч. SM-L-…): фото в WB — по nm донора; в skuMapping донор = wbSku, не origSku.
+        // Раньше приоритет у cards.sku (queueWbSku) шёл раньше mapping: если в sku попал origSku, basket тянул неверную карточку.
         if ($supplierCode === 'S') {
-            $resolvedQueueWbSku = $queueWbSku;
-            if (empty($resolvedQueueWbSku)) {
-                $origSku = (int) Helper::getVendorCode($supplierVendorCode);
-                if ($origSku > 0) {
-                    $wbSkuFromMapping = SkuMapping::query()
-                        ->where('origSku', (string) $origSku)
-                        ->value('wbSku');
-                    if (! empty($wbSkuFromMapping)) {
-                        $resolvedQueueWbSku = $wbSkuFromMapping;
-                    }
+            $origCandidates = [];
+            $fromArticul = trim((string) Helper::getVendorCode($supplierVendorCode));
+            if ($fromArticul !== '') {
+                $origCandidates[] = $fromArticul;
+            }
+            $src = trim((string) ($sourceSku ?? ''));
+            if ($src !== '' && ! in_array($src, $origCandidates, true)) {
+                $origCandidates[] = $src;
+            }
+
+            foreach ($origCandidates as $origKey) {
+                $wbSkuFromMapping = SkuMapping::query()
+                    ->where('origSku', $origKey)
+                    ->value('wbSku');
+                if (! empty($wbSkuFromMapping) && (int) $wbSkuFromMapping > 0) {
+                    return (int) $wbSkuFromMapping;
                 }
             }
-            if (! empty($resolvedQueueWbSku)) {
-                return (int) $resolvedQueueWbSku;
+
+            if (! empty($queueWbSku) && (int) $queueWbSku > 0) {
+                return (int) $queueWbSku;
             }
-            if (! empty($sourceSku)) {
+
+            if (! empty($sourceSku) && (int) $sourceSku > 0) {
                 return (int) $sourceSku;
             }
 
-            return (int) Helper::getVendorCode($supplierVendorCode);
+            $embedded = (int) Helper::getVendorCode($supplierVendorCode);
+            if ($embedded > 0) {
+                return $embedded;
+            }
+
+            return 0;
         }
 
         // Для WB пытаемся взять SKU из vendorCode.
@@ -1185,12 +1615,29 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
-        // Fallback для legacy-вызовов.
+        // Fallback: nmID донора из клонирования/копирования (queueWbSku) — источник фото каталога WB.
+        // vendor_code из карточки (sourceSku) часто не совпадает с nmID; брать его первым ломало basket/getCardInfo для префиксов вроде LC-S-….
+        if (! empty($queueWbSku) && (int) $queueWbSku > 0) {
+            return (int) $queueWbSku;
+        }
+
         if (! empty($sourceSku)) {
             return (int) $sourceSku;
         }
 
-        return (int) $queueWbSku;
+        // Артикулы вида LC-S-{nmID}-{package}: средний сегмент — nmID донора для basket/getCardInfo (выборочный sync и т.п.).
+        if (substr_count($supplierVendorCode, '-') >= 2) {
+            $embedded = (int) Helper::getVendorCode($supplierVendorCode);
+            if ($embedded > 0) {
+                return $embedded;
+            }
+        }
+
+        if ($photoSourceFallbackNmId !== null && $photoSourceFallbackNmId > 0) {
+            return $photoSourceFallbackNmId;
+        }
+
+        return 0;
     }
 
     private function updatePrice(): void
@@ -1269,6 +1716,15 @@ class WbJob implements ShouldBeUnique, ShouldQueue
                     echo '🚨 Сетевая ошибка отправки пачки '.($index + 1)." из {$totalChunks} для seller {$sellerId}: {$e->getMessage()}\r\n";
                     throw $e;
                 } catch (\Exception $e) {
+                    if (str_contains($e->getMessage(), 'Specified prices and discounts are already set')) {
+                        echo 'ℹ️ Пачка '.($index + 1)." из {$totalChunks} для seller {$sellerId} пропущена: цены уже установлены\r\n";
+                        SkuMapping::whereIn('id', $mappingIds)
+                            ->update(['needUpdatePrice' => 0]);
+                        $processedBatches++;
+
+                        continue;
+                    }
+
                     echo '🚨 Ошибка отправки пачки '.($index + 1)." из {$totalChunks} для seller {$sellerId}: {$e->getMessage()}\r\n";
                     throw $e;
                 }

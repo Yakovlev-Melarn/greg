@@ -236,6 +236,20 @@ function ajaxDestroyWarehouse(id) {
         .fail(shopsAjaxFail);
 }
 
+function ajaxWarehouseZeroStocks(warehouseId, supplierIds) {
+    ajaxPostJson('/api/sellers/warehouseZeroStocks', {
+        warehouse_id: parseInt(warehouseId, 10),
+        supplier_ids: supplierIds,
+    })
+        .done(function () {
+            if (shopsModalRef) {
+                shopsModalRef.window.find('.modal-title').text('Магазины');
+            }
+            refreshShopsModal();
+        })
+        .fail(shopsAjaxFail);
+}
+
 function renderWhStockHistorySummary(runs) {
     var $el = $('#whStockHistorySummary');
     if (!$el.length) {

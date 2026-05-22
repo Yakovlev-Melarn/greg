@@ -43,10 +43,17 @@
                             <h6 class="mb-2" id="scheduleDayTitle">День не выбран</h6>
                             <div id="scheduleDayContent" class="text-muted">Выберите день в календаре.</div>
                             <hr>
+                            <h6 class="mb-2">Смен за месяц по водителям</h6>
+                            <div id="scheduleMonthlyShiftStats" class="schedule-monthly-shift-stats mb-3"></div>
+                            <div id="scheduleMonthlyShiftEmpty" class="text-muted small d-none mb-3">Нет смен за выбранный месяц.</div>
+                            <hr>
                             <h6 class="mb-2">Суммы маршрутных листов за месяц</h6>
                             <div class="schedule-monthly-chart-wrap">
                                 <canvas id="scheduleMonthlyPieChart" height="220"></canvas>
                                 <div id="scheduleMonthlyPieEmpty" class="text-muted d-none">Нет данных за выбранный месяц.</div>
+                                <div class="schedule-monthly-total mt-2">
+                                    Итого за месяц: <strong id="scheduleMonthlyTotal">0 ₽</strong>
+                                </div>
                             </div>
                         </div>
                     </div>

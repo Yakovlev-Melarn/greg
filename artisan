@@ -4,6 +4,9 @@
 use Illuminate\Foundation\Application;
 use Symfony\Component\Console\Input\ArgvInput;
 
+@ini_set('max_execution_time', '3600');
+@set_time_limit(3600);
+
 define('LARAVEL_START', microtime(true));
 
 // Register the Composer autoloader...

@@ -42,6 +42,70 @@
                     </div>
                 </div>
 
+                <div class="glass-panel transport-reports-finance mt-3">
+                    <div class="transport-reports-finance__head d-flex flex-wrap justify-content-between align-items-start mb-3">
+                        <div>
+                            <h5 class="mb-1">Финансы за неделю</h5>
+                            <p class="text-muted small mb-0">Сводка по <strong>всем</strong> водителям выбранной недели (фильтр «Водитель» ниже влияет только на таблицу отчётов).</p>
+                        </div>
+                        <div class="text-muted small transport-reports-finance__loading d-none" id="financeLoading" aria-live="polite">
+                            <span class="spinner-border spinner-border-sm mr-1" role="status"></span> Расчёт…
+                        </div>
+                    </div>
+                    <div class="transport-finance-grid">
+                        <div class="transport-finance-card">
+                            <div class="transport-finance-card__icon text-primary"><i class="mdi mdi-cash-multiple"></i></div>
+                            <div class="transport-finance-card__body">
+                                <div class="transport-finance-card__label">Маршрутные листы</div>
+                                <div class="transport-finance-card__value" id="financeRouteTotal">—</div>
+                            </div>
+                        </div>
+                        <div class="transport-finance-card transport-finance-card--accent">
+                            <div class="transport-finance-card__icon text-info"><i class="mdi mdi-account"></i></div>
+                            <div class="transport-finance-card__body">
+                                <div class="transport-finance-card__label">Оплата труда водителей</div>
+                                <button type="button" class="transport-finance-card__value transport-finance-card__value--link btn btn-link p-0 align-baseline font-weight-bold" id="financeDriversPayrollBtn" title="Подробно по водителям">
+                                    <span id="financeDriversPayroll">—</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="transport-finance-card">
+                            <div class="transport-finance-card__icon text-secondary"><i class="mdi mdi-headset"></i></div>
+                            <div class="transport-finance-card__body">
+                                <div class="transport-finance-card__label">Оплата логисту</div>
+                                <div class="d-flex flex-wrap align-items-center transport-finance-logistician-actions">
+                                    <span class="transport-finance-card__value mb-0" id="financeLogisticianAmount">—</span>
+                                    <button type="button" class="btn btn-sm btn-outline-primary d-none" id="financePayLogisticianBtn">Выплатить</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="financeUnpayLogisticianBtn">Отменить</button>
+                                </div>
+                                <div class="transport-finance-card__hint text-muted small mt-1 d-none" id="financeLogisticianHint"></div>
+                            </div>
+                        </div>
+                        <div class="transport-finance-card">
+                            <div class="transport-finance-card__icon text-warning"><i class="mdi mdi-cash-refund"></i></div>
+                            <div class="transport-finance-card__body">
+                                <div class="transport-finance-card__label">За вычетом оплаты труда</div>
+                                <div class="transport-finance-card__value" id="financeAfterPayroll">—</div>
+                            </div>
+                        </div>
+                        <div class="transport-finance-card">
+                            <div class="transport-finance-card__icon text-danger"><i class="mdi mdi-car"></i></div>
+                            <div class="transport-finance-card__body">
+                                <div class="transport-finance-card__label">Расходы на автомобили</div>
+                                <div class="transport-finance-card__value" id="financeVehicleExpenses">—</div>
+                                <div class="transport-finance-card__hint text-muted small mt-1" id="financeVehicleExpensesHint"></div>
+                            </div>
+                        </div>
+                        <div class="transport-finance-card transport-finance-card--highlight">
+                            <div class="transport-finance-card__icon text-success"><i class="mdi mdi-finance"></i></div>
+                            <div class="transport-finance-card__body">
+                                <div class="transport-finance-card__label">Чистая прибыль</div>
+                                <div class="transport-finance-card__value" id="financeNetProfit">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="alert mt-3 d-none" id="transportReportsAlert"></div>
 
                 <div class="glass-panel cards-content mt-3">
@@ -146,6 +210,77 @@
                         </div>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade transport-finance-modal" id="driverPayoutsModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Выплаты водителям за неделю</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-borderless mb-0 transport-finance-payouts-table">
+                            <thead>
+                            <tr>
+                                <th>Водитель</th>
+                                <th class="text-right">Маршрут, ₽</th>
+                                <th class="text-right"><span class="transport-finance-abbr" title="45% от маршрута">Начисл.</span></th>
+                                <th class="text-right text-success">Бонусы</th>
+                                <th class="text-right text-danger">Штрафы</th>
+                                <th class="text-right font-weight-bold">К выплате</th>
+                                <th class="text-center">Действие</th>
+                            </tr>
+                            </thead>
+                            <tbody id="driverPayoutsTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="text-center text-muted py-4 d-none" id="driverPayoutsEmpty">Нет строк за эту неделю.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-dismiss="modal">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade transport-finance-modal" id="driverDayBreakdownModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="driverDayBreakdownTitle">По дням</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center text-muted py-3 d-none" id="driverDayBreakdownLoading">
+                        <span class="spinner-border spinner-border-sm mr-2" role="status"></span> Загрузка…
+                    </div>
+                    <div class="table-responsive d-none" id="driverDayBreakdownWrap">
+                        <table class="table table-sm table-hover mb-0 transport-finance-days-table">
+                            <thead>
+                            <tr>
+                                <th>День</th>
+                                <th class="text-right text-route">Маршрут</th>
+                                <th class="text-right text-accrual">45%</th>
+                                <th class="text-right text-success">Бонусы</th>
+                                <th class="text-right text-danger">Штрафы</th>
+                                <th class="text-right font-weight-bold">Итого</th>
+                            </tr>
+                            </thead>
+                            <tbody id="driverDayBreakdownBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-dismiss="modal">Закрыть</button>
+                </div>
             </div>
         </div>
     </div>
