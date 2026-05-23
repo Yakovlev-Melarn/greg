@@ -29,6 +29,114 @@ class SimService
     }
 
     /**
+     * Варианты sid для Sima-Land: исходный код, дубль без слэша (123456123456 → 123456),
+     * сегменты через «/» (123456/123456).
+     *
+     * @return list<string>
+     */
+    public static function normalizeSidCandidates(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $candidates = [];
+        $seen = [];
+
+        $add = static function (string $candidate) use (&$candidates, &$seen): void {
+            $candidate = trim($candidate);
+            if ($candidate === '' || isset($seen[$candidate])) {
+                return;
+            }
+            $seen[$candidate] = true;
+            $candidates[] = $candidate;
+        };
+
+        if (preg_match('/^(\d+)/', $raw, $matches)) {
+            $add($matches[1]);
+        }
+
+        $digits = preg_replace('/\D/', '', $raw);
+        if ($digits !== '' && strlen($digits) % 2 === 0) {
+            $halfLen = (int) (strlen($digits) / 2);
+            $left = substr($digits, 0, $halfLen);
+            $right = substr($digits, $halfLen);
+            if ($left === $right) {
+                $add($left);
+            }
+        }
+
+        if (str_contains($raw, '/')) {
+            foreach (explode('/', $raw) as $segment) {
+                $segment = trim($segment);
+                if ($segment === '') {
+                    continue;
+                }
+                if (preg_match('/^(\d+)/', $segment, $segmentMatches)) {
+                    $add($segmentMatches[1]);
+                } elseif (ctype_digit($segment)) {
+                    $add($segment);
+                }
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * @return array<string, mixed>
+     *
+     * @throws RequestException
+     * @throws ConnectionException
+     */
+    public static function fetchProductDataResolvingSid(string $raw): array
+    {
+        $candidates = self::normalizeSidCandidates($raw);
+        if ($candidates === []) {
+            throw new InvalidArgumentException('Пустой sid');
+        }
+
+        $lastException = null;
+        $lastIndex = count($candidates) - 1;
+
+        foreach ($candidates as $index => $sid) {
+            try {
+                return self::fetchProductData($sid);
+            } catch (RequestException $e) {
+                $lastException = $e;
+                if ($index < $lastIndex && self::isSidOutOfRangeError($e)) {
+                    continue;
+                }
+                throw $e;
+            }
+        }
+
+        if ($lastException !== null) {
+            throw $lastException;
+        }
+
+        throw new InvalidArgumentException('Пустой sid');
+    }
+
+    public static function isSidOutOfRangeError(Throwable $e): bool
+    {
+        if ($e instanceof RequestException) {
+            $response = $e->response;
+            if ($response !== null && $response->status() === 422) {
+                $message = (string) ($response->json('message') ?? '');
+
+                return str_contains(strtolower($message), 'sid is out of range');
+            }
+        }
+
+        $message = strtolower($e->getMessage());
+
+        return str_contains($message, '422')
+            && str_contains($message, 'sid is out of range');
+    }
+
+    /**
      * Bulk-запрос остатков по списку origSku.
      *
      * @param  array<int|string>  $origSkus

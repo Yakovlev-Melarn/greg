@@ -37,16 +37,17 @@ class SimJob implements ShouldQueue
 
     public function cleanArticle($article): string
     {
-        preg_match('/^\d+/', $article, $matches);
+        $candidates = SimService::normalizeSidCandidates((string) $article);
 
-        return ! empty($matches) ? $matches[0] : '';
+        return $candidates[0] ?? '';
     }
 
     private function calcPrice($params): array
     {
         try {
-            $origSid = $sid = (string) ($params['sid'] ?? '');
-            $sid = $this->cleanArticle($sid);
+            $origSid = (string) ($params['sid'] ?? '');
+            $sidCandidates = SimService::normalizeSidCandidates($origSid);
+            $sid = $sidCandidates[0] ?? '';
             if ($sid === '') {
                 echo "❌ calcPrice: не указан sid\n";
 
@@ -61,8 +62,11 @@ class SimJob implements ShouldQueue
             }
 
             echo "🚀 Начало выполнения джобы\n";
-            echo "🔍 Получение данных о товаре\n";
-            $response = SimService::fetchProductData($sid);
+            echo "🔍 Получение данных о товаре (sid: {$sid})\n";
+            if (count($sidCandidates) > 1) {
+                echo 'ℹ️ Варианты sid: '.implode(', ', $sidCandidates)."\n";
+            }
+            $response = SimService::fetchProductDataResolvingSid($origSid);
             echo "✅ Валидация ответа\n";
             SimService::validateResponse($response);
             $item = $response['items'][0];
