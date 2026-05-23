@@ -9,6 +9,9 @@ const $filterDateFrom = $('#filterAdjDateFrom');
 const $filterDateTo = $('#filterAdjDateTo');
 const $modal = $('#adjustmentModal');
 const $detailsModal = $('#adjustmentDetailsModal');
+const $photoModal = $('#adjustmentPhotoModal');
+const $photoModalImage = $('#adjustmentPhotoModalImage');
+const $photoModalTitle = $('#adjustmentPhotoModalTitle');
 const $form = $('#adjustmentForm');
 const $partsSection = $('#adjustmentPartsSection');
 const $partsContainer = $('#adjustmentPartsContainer');
@@ -57,6 +60,68 @@ function typeLabel(type) {
 
 function statusLabel(status) {
     return status === 'open' ? 'Открыт' : 'Закрыт';
+}
+
+function attachmentUrl(url) {
+    if (!url) {
+        return '#';
+    }
+    if (url.startsWith('/')) {
+        return url;
+    }
+    try {
+        const parsed = new URL(url, window.location.origin);
+        return parsed.pathname + parsed.search + parsed.hash;
+    } catch (e) {
+        return url;
+    }
+}
+
+function isImageAttachment(attachment) {
+    const mime = String(attachment?.mime || '').toLowerCase();
+    if (mime.startsWith('image/')) {
+        return true;
+    }
+    const name = String(attachment?.original_name || '').toLowerCase();
+    return /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$/.test(name);
+}
+
+function renderAttachmentsHtml(attachments) {
+    if (!attachments.length) {
+        return '<div class="text-muted">Нет вложений</div>';
+    }
+
+    const items = attachments.map(function (a) {
+        const url = attachmentUrl(a.url);
+        const name = a.original_name || 'фото';
+
+        if (!isImageAttachment(a)) {
+            return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
+        }
+
+        return `
+            <button type="button"
+                    class="adjustment-photo-thumb js-adjustment-photo-preview"
+                    data-full-src="${escapeHtml(url)}"
+                    data-title="${escapeHtml(name)}"
+                    title="Открыть: ${escapeHtml(name)}">
+                <img src="${escapeHtml(url)}"
+                     alt="${escapeHtml(name)}"
+                     width="96"
+                     height="96"
+                     loading="lazy"
+                     decoding="async">
+            </button>
+        `;
+    }).join('');
+
+    return `<div class="adjustment-photos-grid mb-3">${items}</div>`;
+}
+
+function openAttachmentPreview(fullSrc, title) {
+    $photoModalImage.attr({ src: fullSrc, alt: title || 'Фото' });
+    $photoModalTitle.text(title || 'Просмотр фото');
+    $photoModal.modal('show');
 }
 
 function toYmd(date) {
@@ -235,9 +300,7 @@ function openDetails(id) {
             const partsHtml = (item.parts || []).map(function (p) {
                 return `<tr><td>${p.part_no}</td><td>${escapeHtml(p.due_date)}</td><td>${formatMoney(p.amount)}</td><td>${p.is_applied ? 'Да' : 'Нет'}</td><td>${escapeHtml(p.comment || '—')}</td></tr>`;
             }).join('');
-            const attachmentsHtml = (item.attachments || []).map(function (a) {
-                return `<li><a href="${escapeHtml(a.url || '#')}" target="_blank">${escapeHtml(a.original_name || 'файл')}</a> (${Math.round((a.size || 0) / 1024)} KB)</li>`;
-            }).join('');
+            const attachmentsHtml = renderAttachmentsHtml(item.attachments || []);
 
             $('#adjustmentDetailsBody').html(`
                 <div class="mb-2"><strong>Дата:</strong> ${escapeHtml(item.event_date)}</div>
@@ -256,7 +319,7 @@ function openDetails(id) {
                     </div>
                 ` : ''}
                 <h6>Фото</h6>
-                ${(item.attachments || []).length ? `<ul class="mb-3">${attachmentsHtml}</ul>` : '<div class="text-muted">Нет вложений</div>'}
+                ${attachmentsHtml}
                 <button type="button" class="btn btn-outline-primary js-edit-adjustment" data-id="${item.id}">Редактировать</button>
             `);
             $detailsModal.modal('show');
@@ -382,6 +445,17 @@ $(document).on('click', '.js-edit-adjustment', function () {
     const id = Number($(this).data('id'));
     $detailsModal.modal('hide');
     openEditForm(id);
+});
+$(document).on('click', '.js-adjustment-photo-preview', function () {
+    const fullSrc = $(this).data('full-src');
+    const title = $(this).data('title');
+    if (!fullSrc) {
+        return;
+    }
+    openAttachmentPreview(fullSrc, title);
+});
+$photoModal.on('hidden.bs.modal', function () {
+    $photoModalImage.attr('src', '');
 });
 
 $filterDriver.on('change', reloadAll);

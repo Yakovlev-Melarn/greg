@@ -102,6 +102,10 @@ class DriverAdjustmentsApiTest extends TestCase
         $show->assertOk();
         $this->assertCount(2, $show->json('attachments'));
         $this->assertEquals(2, $show->json('attachments_count'));
+
+        $url = (string) $show->json('attachments.0.url');
+        $this->assertStringStartsWith('/storage/', $url);
+        $this->assertStringNotContainsString('://', $url);
     }
 
     #[TestDox('Список поддерживает курсорную пагинацию и summary')]

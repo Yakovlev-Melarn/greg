@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\Storage;
 
 class DriverAdjustmentAttachment extends Model
 {
@@ -32,6 +31,8 @@ class DriverAdjustmentAttachment extends Model
             return null;
         }
 
-        return Storage::disk($this->disk ?: 'public')->url($this->path);
+        $path = str_replace('\\', '/', $this->path);
+
+        return '/storage/'.ltrim($path, '/');
     }
 }
