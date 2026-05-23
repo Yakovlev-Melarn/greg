@@ -43,17 +43,19 @@ class WBContent
         return $result;
     }
 
-    public static function getAmounts(string $nmIds): array|bool
+    public static function getAmounts(string $nmIds): array|false
     {
-        $result = false;
         $response = self::getDetail($nmIds, false);
-        if (isset($response['products'])) {
-            foreach ($response['products'] as $productDetail) {
-                $result[$productDetail['id']] = self::calcAmount($productDetail);
-            }
+        if (! is_array($response) || ! isset($response['products'])) {
+            return false;
         }
 
-        return $result;
+        $result = [];
+        foreach ($response['products'] as $productDetail) {
+            $result[$productDetail['id']] = self::calcAmount($productDetail);
+        }
+
+        return $result === [] ? false : $result;
     }
 
     private static function calcAmount(array $productDetail): int
@@ -74,35 +76,6 @@ class WBContent
         }
 
         return self::calcAmount($response);
-    }
-
-    public static function getPrices(string $nmId, $seller): array|false
-    {
-        $response = self::getDetail($nmId);
-        $result = false;
-        if (! empty($response['data']['products'])) {
-            foreach ($response['data']['products'] as $product) {
-                if (! isset($product['salePriceU'])) {
-                    if ($card = Card::where('supplierSku', $nmId)->first()) {
-                        if ($card->prices) {
-                            if (! empty($card->prices->s_price)) {
-                                $product['salePriceU'] = $card->prices->s_price * 100;
-                            }
-                        }
-                    }
-                    if (! isset($product['salePriceU'])) {
-                        Telegramm::send("Нет цены закупки для товара {$nmId}. Продавец {$seller->name}\r\n", $seller->user->id);
-
-                        continue;
-                    }
-                }
-                $result[$product['id']] = $product['salePriceU'] / 100;
-            }
-
-            return $result;
-        }
-
-        return false;
     }
 
     public static function getPrice(int $nmId): int|bool
@@ -133,31 +106,6 @@ class WBContent
      */
     public static function getPagesProductsByCategory($supplierId, $categoryId, $page = 1)
     {
-        $page = max(1, (int) $page);
-        $base = 'https://catalog.wb.ru/sellers/v4/catalog?ab_testing=false&appType=1&curr=rub&dest=-431464&lang=ru&sort=popular&spp=30&uclusters=4';
-        $query = http_build_query([
-            'supplier' => $supplierId,
-            'xsubject' => $categoryId,
-            'page' => $page,
-        ]);
-        $response = Http::withHeaders([])
-            ->timeout(180)
-            ->connectTimeout(180)
-            ->acceptJson()
-            ->get($base.'&'.$query);
-
-        if (! $response->successful()) {
-            return null;
-        }
-
-        $data = $response->json();
-
-        return is_array($data) ? $data : null;
-    }
-
-    public static function getSkusByPage($url, $categoryId, $page)
-    {
-        $supplierId = Helper::getSupplierID($url);
         $page = max(1, (int) $page);
         $base = 'https://catalog.wb.ru/sellers/v4/catalog?ab_testing=false&appType=1&curr=rub&dest=-431464&lang=ru&sort=popular&spp=30&uclusters=4';
         $query = http_build_query([
