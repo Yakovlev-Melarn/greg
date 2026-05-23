@@ -27,7 +27,7 @@ class CloneProductsJob implements ShouldQueue
     /**
      * Воркер очереди по умолчанию обрывает джобу через ~60 с; здесь до 9×10 с пауз на категорию + HTTP — иначе «attempted too many times».
      */
-    public int $timeout = 7200;
+    public int $timeout = 0;
 
     protected $data;
 

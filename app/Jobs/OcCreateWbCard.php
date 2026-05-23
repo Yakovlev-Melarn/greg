@@ -23,7 +23,7 @@ class OcCreateWbCard implements ShouldQueue
     use Dispatchable;
 
     public int $tries = 1;
-    public int $timeout = 3600;
+    public int $timeout = 0;
     public mixed $nmId;
     public mixed $oldPrice;
     public mixed $newPrice;

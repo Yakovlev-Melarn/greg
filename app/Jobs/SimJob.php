@@ -21,7 +21,7 @@ class SimJob implements ShouldQueue
 
     public int $tries = 10;
 
-    public int $timeout = 3600;
+    public int $timeout = 0;
 
     public array $backoff = [30, 120, 300, 600];
 

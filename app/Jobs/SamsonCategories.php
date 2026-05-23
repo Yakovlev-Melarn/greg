@@ -12,7 +12,7 @@ class SamsonCategories implements ShouldQueue
     use Dispatchable;
 
     public int $tries = 10;
-    public int $timeout = 3600;
+    public int $timeout = 0;
 
     public function handle(): void
     {

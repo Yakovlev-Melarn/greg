@@ -23,7 +23,7 @@ class OcCreateSamsonCard implements ShouldQueue
     use Dispatchable;
 
     public int $tries = 1;
-    public int $timeout = 3600;
+    public int $timeout = 0;
 
     public function __construct()
     {

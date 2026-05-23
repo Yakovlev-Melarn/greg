@@ -85,7 +85,7 @@ class WbJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 10;
 
-    public int $timeout = 3600;
+    public int $timeout = 0;
 
     public function __construct(
         private readonly string $action,
