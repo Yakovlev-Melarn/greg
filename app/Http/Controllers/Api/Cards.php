@@ -72,6 +72,7 @@ class Cards
                 'sm.stock_quantity as unit_stock_quantity',
                 'sm.wbPrice as unit_wb_price',
                 'sm.origSku as unit_orig_sku',
+                'sm.wbSku as unit_wb_sku',
                 $userBlockedSelect,
             ])
             ->where('sellerID', $request['seller']);

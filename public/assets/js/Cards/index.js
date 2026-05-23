@@ -962,10 +962,10 @@ function openUnitEconomyModal(cardId) {
     $unitEconomyImage.attr('src', card.photo || '/assets/images/img_placeholder.jpg');
     $unitEconomyCodeSku.text(`SKU: ${card.unit_orig_sku || '-'}`);
     $unitEconomyCodeNmId.text(`nmID: ${card.nmID || '-'}`);
-    const isSimaLand = Number(card.supplier) === 20;
+    const wbId = card.unit_wb_sku || '';
     $unitEconomyCodeWbId
-        .toggleClass('d-none', !isSimaLand)
-        .text(`WBID: ${card.sku || '-'}`);
+        .toggleClass('d-none', !wbId)
+        .text(`WBID: ${wbId}`);
     const source = getUnitEconomySource(card);
     $unitEconomySourceBadge
         .text(`Источник: ${source.label}`)
