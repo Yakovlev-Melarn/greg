@@ -1585,6 +1585,9 @@ class WbJob implements ShouldBeUnique, ShouldQueue
             foreach ($origCandidates as $origKey) {
                 $wbSkuFromMapping = SkuMapping::query()
                     ->where('origSku', $origKey)
+                    ->where(function ($q) {
+                        $q->where('blocked', false)->orWhereNull('blocked');
+                    })
                     ->value('wbSku');
                 if (! empty($wbSkuFromMapping) && (int) $wbSkuFromMapping > 0) {
                     return (int) $wbSkuFromMapping;
