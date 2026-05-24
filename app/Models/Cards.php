@@ -27,11 +27,14 @@ class Cards extends Model
         'sku',
         'orphan_for_clone',
         'wb_created_at',
+        'supplier_change_reason',
+        'supplier_changed_at',
     ];
 
     protected $casts = [
         'orphan_for_clone' => 'boolean',
         'wb_created_at' => 'datetime',
+        'supplier_changed_at' => 'datetime',
     ];
 
     public function seller(): BelongsTo

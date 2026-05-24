@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\DriverDailyReports as DriverDailyReportsAlias;
 use App\Http\Controllers\Api\Drivers as DriversAlias;
 use App\Http\Controllers\Api\Fleet as FleetAlias;
 use App\Http\Controllers\Api\Seller as SellerAlias;
+use App\Http\Controllers\Api\SimaSupplierAudit as SimaSupplierAuditAlias;
 use App\Http\Controllers\Api\SkuMapping as SkuMappingApi;
 use App\Http\Controllers\Api\Suppliers as SuppliersAlias;
 use App\Http\Controllers\Api\SystemNotifications as SystemNotificationsApi;
@@ -25,6 +26,7 @@ class Api
         'blocked-cards' => BlockedCardsAlias::class,
         'suppliers' => SuppliersAlias::class,
         'clone-products' => CloneProductsAlias::class,
+        'sima-supplier-audit' => SimaSupplierAuditAlias::class,
         'sku-mapping' => SkuMappingApi::class,
         'system-notifications' => SystemNotificationsApi::class,
         'fleet' => FleetAlias::class,

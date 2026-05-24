@@ -49,6 +49,15 @@ class Cards
             ? 'sm.user_blocked as unit_user_blocked'
             : DB::raw('0 as unit_user_blocked');
 
+        $hasSupplierChangeReason = Schema::hasColumn('cards', 'supplier_change_reason');
+        $supplierChangeReasonSelect = $hasSupplierChangeReason
+            ? 'cards.supplier_change_reason'
+            : DB::raw('NULL as supplier_change_reason');
+        $hasSupplierChangedAt = Schema::hasColumn('cards', 'supplier_changed_at');
+        $supplierChangedAtSelect = $hasSupplierChangedAt
+            ? 'cards.supplier_changed_at'
+            : DB::raw('NULL as supplier_changed_at');
+
         $query = ModelsCards::query()
             ->leftJoin('skuMapping as sm', function ($join) {
                 $join->on(function ($on) {
@@ -74,6 +83,8 @@ class Cards
                 'sm.origSku as unit_orig_sku',
                 'sm.wbSku as unit_wb_sku',
                 $userBlockedSelect,
+                $supplierChangeReasonSelect,
+                $supplierChangedAtSelect,
             ])
             ->where('sellerID', $request['seller']);
 

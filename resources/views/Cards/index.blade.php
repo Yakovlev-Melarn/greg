@@ -232,6 +232,7 @@
                                 <span id="unitEconomyCodeWbId" class="badge badge-light d-none">WBID: -</span>
                                 <span id="unitEconomySourceBadge" class="badge badge-light">Источник: -</span>
                             </div>
+                            <div id="unitEconomySupplierChange" class="unit-economy-supplier-change alert alert-info d-none mt-2 mb-0" role="status"></div>
                         </div>
                     </div>
                     <div id="unitEconomyGrid" class="unit-economy-grid mt-3"></div>

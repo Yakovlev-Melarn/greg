@@ -10,6 +10,7 @@ use App\Http\Controllers\FleetController;
 use App\Http\Controllers\IndexController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\SimaSupplierAuditController;
 use App\Http\Controllers\TransportReportsController;
 use Illuminate\Support\Facades\Route;
 
@@ -20,6 +21,7 @@ Route::get('/cards', [CardsController::class, 'index']);
 Route::get('/competitorCards', [CompetitorCardsController::class, 'index']);
 Route::post('/competitorCards', [CompetitorCardsController::class, 'index']);
 Route::get('/blockedCards', [BlockedCardsController::class, 'index']);
+Route::get('/simaSupplierAudit', [SimaSupplierAuditController::class, 'index']);
 Route::get('/notifications', [NotificationsController::class, 'index']);
 Route::get('/fleet', [FleetController::class, 'index']);
 Route::get('/drivers', [DriversController::class, 'index']);

@@ -256,6 +256,12 @@
                     <i class="mdi mdi-delete-outline link-icon"></i>
                 </a>
             </li>
+            <li>
+                <a href="/simaSupplierAudit">
+                    <span class="link-title">Аудит Sima-Land</span>
+                    <i class="mdi mdi-clipboard-check-outline link-icon"></i>
+                </a>
+            </li>
         </ul>
     </div>
     @yield('content')

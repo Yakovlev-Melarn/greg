@@ -16,6 +16,7 @@ const $unitEconomyCodeSku = $('#unitEconomyCodeSku');
 const $unitEconomyCodeNmId = $('#unitEconomyCodeNmId');
 const $unitEconomyCodeWbId = $('#unitEconomyCodeWbId');
 const $unitEconomySourceBadge = $('#unitEconomySourceBadge');
+const $unitEconomySupplierChange = $('#unitEconomySupplierChange');
 const $unitEconomyGrid = $('#unitEconomyGrid');
 const $unitEconomyChart = $('#unitEconomyChart');
 const $alert = $("#alert");
@@ -971,6 +972,24 @@ function openUnitEconomyModal(cardId) {
         .text(`Источник: ${source.label}`)
         .removeClass('badge-source-wb badge-source-sima')
         .addClass(source.className);
+
+    const changeReason = String(card.supplier_change_reason || '').trim();
+    if (changeReason) {
+        let changeText = changeReason;
+        if (card.supplier_changed_at) {
+            const d = new Date(card.supplier_changed_at);
+            if (!Number.isNaN(d.getTime())) {
+                changeText = 'Поставщик изменён ' + d.toLocaleString('ru-RU') + ': ' + changeReason;
+            } else {
+                changeText = 'Поставщик изменён: ' + changeReason;
+            }
+        } else {
+            changeText = 'Поставщик изменён: ' + changeReason;
+        }
+        $unitEconomySupplierChange.text(changeText).removeClass('d-none');
+    } else {
+        $unitEconomySupplierChange.addClass('d-none').text('');
+    }
 
     const tiles = ECONOMY_FIELDS.map(function (field) {
         return createUnitEconomyTile(field.label, card[field.key]);

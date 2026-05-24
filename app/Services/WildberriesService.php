@@ -572,6 +572,79 @@ class WildberriesService
     }
 
     /**
+     * Пагинация get/cards/list по textSearch.
+     * При ошибке API или исключении возвращает true («не уверены» — не считаем отсутствием).
+     *
+     * @param  \Closure(array<string, mixed>): bool  $matches
+     */
+    public function catalogAnyCardMatches(string $textSearch, \Closure $matches): bool
+    {
+        if (trim($this->apiKey) === '' || trim($textSearch) === '') {
+            return false;
+        }
+
+        try {
+            $cursorNmId = null;
+            $cursorUpdatedAt = null;
+
+            do {
+                $cursor = ['limit' => 100];
+                if ($cursorNmId !== null) {
+                    $cursor['nmID'] = $cursorNmId;
+                }
+                if ($cursorUpdatedAt !== null) {
+                    $cursor['updatedAt'] = $cursorUpdatedAt;
+                }
+
+                $settings = [
+                    'settings' => [
+                        'sort' => ['ascending' => true],
+                        'cursor' => $cursor,
+                        'filter' => [
+                            'textSearch' => $textSearch,
+                            'withPhoto' => -1,
+                        ],
+                    ],
+                ];
+
+                $result = $this->getCardList($settings);
+                if (($result['success'] ?? false) !== true) {
+                    return true;
+                }
+
+                $payload = $result['data'] ?? [];
+                $cards = $payload['cards'] ?? [];
+                foreach ($cards as $card) {
+                    if ($matches($card)) {
+                        return true;
+                    }
+                }
+
+                $cursorData = $payload['cursor'] ?? [];
+                $cursorNmId = $cursorData['nmID'] ?? null;
+                $cursorUpdatedAt = $cursorData['updatedAt'] ?? null;
+                $total = (int) ($cursorData['total'] ?? 0);
+                $hasMore = $total === 100 && ($cursorNmId !== null || $cursorUpdatedAt !== null);
+                if ($hasMore && $cursorNmId === null && $cursorUpdatedAt === null) {
+                    Log::warning('WildberriesService catalogAnyCardMatches: pagination ended without cursor', [
+                        'textSearch' => $textSearch,
+                    ]);
+                    break;
+                }
+            } while ($hasMore);
+
+            return false;
+        } catch (\Throwable $e) {
+            Log::warning('WildberriesService catalogAnyCardMatches: getCardList exception', [
+                'textSearch' => $textSearch,
+                'error' => $e->getMessage(),
+            ]);
+
+            return true;
+        }
+    }
+
+    /**
      * @throws ConnectionException
      */
     public function uploadPhotos($nmID, $data): void
