@@ -62,19 +62,19 @@ class CloneProductsJob implements ShouldQueue
      */
     public function handle(): void
     {
-        if (! empty($this->data['send_queue_to_wb'])) {
+        if (!empty($this->data['send_queue_to_wb'])) {
             $this->handleSendQueueToWb();
 
             return;
         }
 
-        if (! empty($this->data['orphan_scan_only'])) {
+        if (!empty($this->data['orphan_scan_only'])) {
             $this->handleOrphanScanOnly();
 
             return;
         }
 
-        if (! empty($this->data['orphan_catalog_scan_only'])) {
+        if (!empty($this->data['orphan_catalog_scan_only'])) {
             $this->handleOrphanCatalogScanOnly();
 
             return;
@@ -87,7 +87,7 @@ class CloneProductsJob implements ShouldQueue
             "✅ WB Supplier ID получен для поставщика {$this->supplier->name} - {$wbSupplierID}\n"
         );
         Storage::disk('local')->append($this->logFile, "✅ Собираю категории\n");
-        if (empty(! $categories = $this->fetchCategoriesWithRetry($wbSupplierID, 5, 10))) {
+        if (empty(!$categories = $this->fetchCategoriesWithRetry($wbSupplierID, 5, 10))) {
             $this->saveCategories($categories);
         }
         if ($categories = Category::where('checked', 0)->get()) {
@@ -102,7 +102,7 @@ class CloneProductsJob implements ShouldQueue
 
                 // Режим «только очередь»: не опрашиваем всю product_queues после каждой категории —
                 // один проход в конце (см. ниже), иначе getCardInfo по всей очереди на каждой итерации.
-                if (! $this->isQueueOnly()) {
+                if (!$this->isQueueOnly()) {
                     $productsToQueue = ProductQueue::where('blocked', 0)->get();
                     if ($productsToQueue->count()) {
                         Storage::disk('local')->append($this->logFile, "✅ Начало клонирования товаров лимит {$this->data['quantity']} шт.\n");
@@ -141,31 +141,31 @@ class CloneProductsJob implements ShouldQueue
                     if ($productsToQueue->isEmpty()) {
                         Storage::disk('local')->append(
                             $this->logFile,
-                            '⚠️  Новые SKU в этой джобе ('.count($newSkus).') не найдены в очереди (возможно удалены) — финальный processQueue пропущен'."\n"
+                            '⚠️  Новые SKU в этой джобе (' . count($newSkus) . ') не найдены в очереди (возможно удалены) — финальный processQueue пропущен' . "\n"
                         );
                     } else {
                         Storage::disk('local')->append(
                             $this->logFile,
-                            '✅ Финальная обработка только позиций, добавленных в этой джобе ('.$productsToQueue->count().' из '.count($newSkus).' SKU): сироты и дубликаты без отправки в WB'."\n"
+                            '✅ Финальная обработка только позиций, добавленных в этой джобе (' . $productsToQueue->count() . ' из ' . count($newSkus) . ' SKU): сироты и дубликаты без отправки в WB' . "\n"
                         );
                         $this->processQueue($productsToQueue, false);
                     }
                 }
             }
 
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
         }
     }
 
     public function failed($exception)
     {
         $logFile = "clone_logs/{$this->jobId}.log";
-        Storage::disk('local')->append($logFile, '❌ Джоба завершена с ошибкой: '.$exception->getMessage()."\n");
+        Storage::disk('local')->append($logFile, '❌ Джоба завершена с ошибкой: ' . $exception->getMessage() . "\n");
     }
 
     private function isQueueOnly(): bool
     {
-        return ! empty($this->data['queue_only']);
+        return !empty($this->data['queue_only']);
     }
 
     /**
@@ -173,7 +173,7 @@ class CloneProductsJob implements ShouldQueue
      */
     private function isOrphanScanOnly(): bool
     {
-        return ! empty($this->data['orphan_scan_only']);
+        return !empty($this->data['orphan_scan_only']);
     }
 
     /**
@@ -181,7 +181,7 @@ class CloneProductsJob implements ShouldQueue
      */
     private function isOrphanCatalogScanOnly(): bool
     {
-        return ! empty($this->data['orphan_catalog_scan_only']);
+        return !empty($this->data['orphan_catalog_scan_only']);
     }
 
     /**
@@ -197,7 +197,7 @@ class CloneProductsJob implements ShouldQueue
      */
     private function reachedCatalogProductLimit(): bool
     {
-        $max = (int) ($this->data['quantity'] ?? 0);
+        $max = (int)($this->data['quantity'] ?? 0);
         if ($max <= 0) {
             return false;
         }
@@ -218,38 +218,38 @@ class CloneProductsJob implements ShouldQueue
         $sellerId = $this->data['seller_id'] ?? null;
         if (empty($sellerId)) {
             Storage::disk('local')->append($this->logFile, "❌ Не указан магазин (seller_id)\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
         if (Sellers::find($sellerId) === null) {
             Storage::disk('local')->append($this->logFile, "❌ Магазин не найден\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
 
         if (empty($this->data['supplier_id'])) {
             Storage::disk('local')->append($this->logFile, "❌ Не указан поставщик (supplier_id) для категорий WB\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
 
         if (Supplier::find($this->data['supplier_id']) === null) {
             Storage::disk('local')->append($this->logFile, "❌ Поставщик не найден\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
 
-        $maxProducts = (int) ($this->data['quantity'] ?? 50_000);
+        $maxProducts = (int)($this->data['quantity'] ?? 50_000);
         $this->data['quantity'] = max(1, min($maxProducts, 500_000));
 
         $wbSupplierID = $this->getWbSupplierID();
         if ($wbSupplierID === null || $wbSupplierID === '') {
             Storage::disk('local')->append($this->logFile, "❌ Не удалось определить WB Supplier ID по ссылке поставщика\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
@@ -261,11 +261,11 @@ class CloneProductsJob implements ShouldQueue
 
         $this->increment = 0;
 
-        $retryUncheckedOnly = ! empty($this->data['orphan_catalog_retry_unchecked_only']);
+        $retryUncheckedOnly = !empty($this->data['orphan_catalog_retry_unchecked_only']);
 
         if (Category::count() === 0) {
             Storage::disk('local')->append($this->logFile, "✅ Категории в БД отсутствуют — загружаем дерево категорий WB\n");
-            if (empty(! $categories = $this->fetchCategoriesWithRetry((int) $wbSupplierID, 5, 10))) {
+            if (empty(!$categories = $this->fetchCategoriesWithRetry((int)$wbSupplierID, 5, 10))) {
                 $this->saveCategories($categories);
             }
         } elseif ($retryUncheckedOnly) {
@@ -295,7 +295,7 @@ class CloneProductsJob implements ShouldQueue
                     "⚠️  Нет категорий для обхода (таблица category пуста или не удалось загрузить список)\n"
                 );
             }
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
@@ -309,7 +309,7 @@ class CloneProductsJob implements ShouldQueue
                 break;
             }
 
-            $categoryLoaded = $this->getProducts((int) $wbSupplierID, $category);
+            $categoryLoaded = $this->getProducts((int)$wbSupplierID, $category);
 
             if ($categoryLoaded) {
                 $category->checked = 1;
@@ -322,7 +322,7 @@ class CloneProductsJob implements ShouldQueue
             }
         }
 
-        Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+        Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
     }
 
     /**
@@ -337,18 +337,18 @@ class CloneProductsJob implements ShouldQueue
         $sellerId = $this->data['seller_id'] ?? null;
         if (empty($sellerId)) {
             Storage::disk('local')->append($this->logFile, "❌ Не указан магазин (seller_id)\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
         if (Sellers::find($sellerId) === null) {
             Storage::disk('local')->append($this->logFile, "❌ Магазин не найден\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
 
-        $limit = (int) ($this->data['quantity'] ?? 5000);
+        $limit = (int)($this->data['quantity'] ?? 5000);
         $limit = max(1, min($limit, 10000));
 
         $queue = ProductQueue::query()
@@ -358,7 +358,7 @@ class CloneProductsJob implements ShouldQueue
 
         if ($queue->isEmpty()) {
             Storage::disk('local')->append($this->logFile, "⚠️  Очередь пуста — нечего проверять\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
@@ -369,7 +369,7 @@ class CloneProductsJob implements ShouldQueue
         );
         $this->orphanQueueProgressDone = 0;
         $this->processQueue($queue, false);
-        Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+        Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
     }
 
     /**
@@ -380,9 +380,9 @@ class CloneProductsJob implements ShouldQueue
         Storage::disk('local')->append($this->logFile, "✅ Режим: отправка накопленной очереди в WB\n");
         $sellerId = $this->data['seller_id'] ?? null;
         $seller = $sellerId ? Sellers::find($sellerId) : null;
-        if (! $seller) {
+        if (!$seller) {
             Storage::disk('local')->append($this->logFile, "❌ Продавец не найден (seller_id)\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
@@ -390,7 +390,7 @@ class CloneProductsJob implements ShouldQueue
         $queue = ProductQueue::where('blocked', 0)->orderBy('id')->get();
         if ($queue->isEmpty()) {
             Storage::disk('local')->append($this->logFile, "⚠️  Очередь пуста\n");
-            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+            Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
 
             return;
         }
@@ -400,7 +400,7 @@ class CloneProductsJob implements ShouldQueue
             "✅ В очереди {$queue->count()} позиций, лимит обработки {$this->data['quantity']} шт.\n"
         );
         $this->processQueue($queue);
-        Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: '.now()."\n");
+        Storage::disk('local')->append($this->logFile, '🏁 Джоба завершена: ' . now() . "\n");
     }
 
     private function getWbSupplierID(): ?string
@@ -422,10 +422,10 @@ class CloneProductsJob implements ShouldQueue
                 return null;
             }
             $categories = WBContent::getCategoriesBySupplier($wbSupplierID);
-            if (is_array($categories) && ! empty($categories)) {
+            if (is_array($categories) && !empty($categories)) {
                 Storage::disk('local')->append(
                     $this->logFile,
-                    '✅ Успешно получено '.count($categories['data']['filters'][0]['items'])." категорий на попытке {$attempt}\n"
+                    '✅ Успешно получено ' . count($categories['data']['filters'][0]['items']) . " категорий на попытке {$attempt}\n"
                 );
 
                 return $categories['data']['filters'][0]['items'];
@@ -462,7 +462,7 @@ class CloneProductsJob implements ShouldQueue
             $stats['processed']++;
             try {
                 $existingCategory = Category::where('category_id', $categoryData['id'])->first();
-                if (! $existingCategory) {
+                if (!$existingCategory) {
                     Category::create([
                         'category_id' => $categoryData['id'],
                         'name' => $categoryData['name'],
@@ -472,7 +472,7 @@ class CloneProductsJob implements ShouldQueue
                     $stats['created']++;
                 }
             } catch (\Exception $e) {
-                $stats['errors'][] = "Error processing category ID {$categoryData['id']}: ".$e->getMessage();
+                $stats['errors'][] = "Error processing category ID {$categoryData['id']}: " . $e->getMessage();
             }
         }
 
@@ -509,7 +509,7 @@ class CloneProductsJob implements ShouldQueue
                 $this->appendOrphanProgressLine(
                     'catalog',
                     $this->increment,
-                    (int) ($this->data['quantity'] ?? 0)
+                    (int)($this->data['quantity'] ?? 0)
                 );
 
                 continue;
@@ -521,14 +521,14 @@ class CloneProductsJob implements ShouldQueue
         }
         Storage::disk('local')->append(
             $this->logFile,
-            '📦 Обработано '.count($products)." товаров с текущей страницы\n"
+            '📦 Обработано ' . count($products) . " товаров с текущей страницы\n"
         );
     }
 
     /**
      * Добавляет товар в очередь на обработку, если он отсутствует в таблице Cards
      *
-     * @param  mixed  $productData  Данные товара, должны содержать ключ 'id'
+     * @param mixed $productData Данные товара, должны содержать ключ 'id'
      * @return bool Успешность операции
      */
     private function addProductQueue(mixed $productData): bool
@@ -537,7 +537,7 @@ class CloneProductsJob implements ShouldQueue
             if ($this->isQueueOnly() && $this->increment >= $this->data['quantity']) {
                 return false;
             }
-            if (! isset($productData['id'])) {
+            if (!isset($productData['id'])) {
                 $this->logError('Недостаточно данных для добавления в очередь: отсутствует id товара');
 
                 return false;
@@ -581,7 +581,7 @@ class CloneProductsJob implements ShouldQueue
                 $message = "Товар с SKU: {$sku} уже находится в очереди обработки";
                 $this->logWarning($message);
                 if ($this->isQueueOnly()) {
-                    $skuKey = (string) $sku;
+                    $skuKey = (string)$sku;
                     $existingInQueue = ProductQueue::query()
                         ->where('sku', $skuKey)
                         ->where(function ($q): void {
@@ -591,7 +591,7 @@ class CloneProductsJob implements ShouldQueue
                     if ($existingInQueue->isNotEmpty()) {
                         if (Sellers::find($this->data['seller_id'] ?? null) === null) {
                             $this->logWarning(
-                                "Проверка сирот для SKU {$skuKey} пропущена: в джобе нет seller_id (магазин). ".
+                                "Проверка сирот для SKU {$skuKey} пропущена: в джобе нет seller_id (магазин). " .
                                 'Без него processQueue не выполняется — проверьте сессию магазина и поле seller_id в запросе /api/clone-products/start.'
                             );
                         } else {
@@ -629,7 +629,7 @@ class CloneProductsJob implements ShouldQueue
                 $this->logSuccess($message);
                 if ($this->isQueueOnly()) {
                     $this->increment++;
-                    $this->skusAddedThisQueueOnlyRun[(string) $sku] = true;
+                    $this->skusAddedThisQueueOnlyRun[(string)$sku] = true;
                 }
 
                 return true;
@@ -639,7 +639,7 @@ class CloneProductsJob implements ShouldQueue
                 return false;
             }
         } catch (\Exception $e) {
-            $this->logError('Ошибка при добавлении товара в очередь: '.$e->getMessage());
+            $this->logError('Ошибка при добавлении товара в очередь: ' . $e->getMessage());
 
             return false;
         }
@@ -674,7 +674,7 @@ class CloneProductsJob implements ShouldQueue
         $pages = ceil($totalProducts / 100);
         $this->logInfo("Категория ID: {$categoryId}. Всего товаров: {$totalProducts}, страниц: {$pages}");
         $this->processProductsPage($products['products'] ?? []);
-        if ($pages > 1 && ! $this->reachedCatalogProductLimit()) {
+        if ($pages > 1 && !$this->reachedCatalogProductLimit()) {
             $this->fetchAndProcessRemainingPages($wbSupplierID, $categoryId, $pages);
         }
     }
@@ -716,7 +716,7 @@ class CloneProductsJob implements ShouldQueue
     }
 
     /**
-     * @param  bool  $uploadToWb  Если false — только сироты/дубликаты по очереди (без addProductsFromSourceBatch); строки очереди для новых карточек сохраняются.
+     * @param bool $uploadToWb Если false — только сироты/дубликаты по очереди (без addProductsFromSourceBatch); строки очереди для новых карточек сохраняются.
      *
      * @throws ConnectionException
      */
@@ -732,7 +732,7 @@ class CloneProductsJob implements ShouldQueue
             return;
         }
 
-        $batchSize = (int) ($this->data['batch_size'] ?? 20);
+        $batchSize = (int)($this->data['batch_size'] ?? 20);
         $batchSize = max(1, min($batchSize, 100));
 
         foreach ($productsToQueue->chunk($batchSize) as $productChunk) {
@@ -757,21 +757,21 @@ class CloneProductsJob implements ShouldQueue
 
                 try {
                     $this->logInfo("Начинаем обработку продукта SKU: {$product->sku}");
-                    if ($this->isOrphanScanOnly() && ! $uploadToWb) {
+                    if ($this->isOrphanScanOnly() && !$uploadToWb) {
                         $this->orphanQueueProgressDone++;
                         $this->appendOrphanProgressLine(
                             'queue',
                             $this->orphanQueueProgressDone,
-                            (int) ($this->data['quantity'] ?? 0)
+                            (int)($this->data['quantity'] ?? 0)
                         );
                     }
 
                     $info = WBContent::getCardInfo($product->sku);
-                    if (! is_array($info)) {
+                    if (!is_array($info)) {
                         throw new \RuntimeException('getCardInfo вернул неожиданный ответ');
                     }
 
-                    $vendorCode = isset($info['vendor_code']) ? (string) $info['vendor_code'] : '';
+                    $vendorCode = isset($info['vendor_code']) ? (string)$info['vendor_code'] : '';
 
                     if ($vendorCode !== '') {
                         $orphanCard = Cards::query()
@@ -781,14 +781,14 @@ class CloneProductsJob implements ShouldQueue
                             ->first();
 
                         if ($orphanCard) {
-                            $queueSku = (string) $product->sku;
-                            $this->restoreOrphanCardFromWbMatch($orphanCard, $queueSku, (float) $product->price);
+                            $queueSku = (string)$product->sku;
+                            $this->restoreOrphanCardFromWbMatch($orphanCard, $queueSku, (float)$product->price);
 
                             $product->delete();
                             $this->logSuccess(
                                 "Сирота по vendorCode {$vendorCode}: sku обновлен на {$queueSku}, пометка снята"
                             );
-                            if (! $this->skipIncrementLikeQueueOnly()) {
+                            if (!$this->skipIncrementLikeQueueOnly()) {
                                 $this->increment++;
                             }
 
@@ -797,7 +797,7 @@ class CloneProductsJob implements ShouldQueue
                     }
 
                     // Дубликат ищем по vendorCode (у сироты sku донора может быть пустым). Если WB не вернул vendor_code — запасной поиск по sku донора.
-                    $donorNmId = (string) $product->sku;
+                    $donorNmId = (string)$product->sku;
                     $existingCard = $this->findSellerCardDuplicate($seller->id, $vendorCode, $donorNmId);
                     if ($existingCard !== null) {
                         $ref = $vendorCode !== '' ? "vendorCode {$vendorCode}" : "sku донора {$donorNmId}";
@@ -811,14 +811,14 @@ class CloneProductsJob implements ShouldQueue
                             );
                             $product->delete();
                         }
-                        if (! $this->skipIncrementLikeQueueOnly()) {
+                        if (!$this->skipIncrementLikeQueueOnly()) {
                             $this->increment++;
                         }
 
                         continue;
                     }
 
-                    if (! $uploadToWb) {
+                    if (!$uploadToWb) {
                         continue;
                     }
 
@@ -833,8 +833,8 @@ class CloneProductsJob implements ShouldQueue
                 } catch (\Exception $e) {
                     $product->blocked = 1;
                     $product->save();
-                    $this->logError("Критическая ошибка при подготовке продукта {$product->sku}: ".$e->getMessage());
-                    if (! $this->skipIncrementLikeQueueOnly()) {
+                    $this->logError("Критическая ошибка при подготовке продукта {$product->sku}: " . $e->getMessage());
+                    if (!$this->skipIncrementLikeQueueOnly()) {
                         $this->increment++;
                     }
                 }
@@ -845,7 +845,7 @@ class CloneProductsJob implements ShouldQueue
             }
 
             try {
-                $payload = array_map(static fn ($item) => [
+                $payload = array_map(static fn($item) => [
                     'sourceData' => $item['sourceData'],
                     'sku' => $item['sku'],
                     'queueSku' => $item['queueSku'],
@@ -860,21 +860,21 @@ class CloneProductsJob implements ShouldQueue
                 $result = $service->addProductsFromSourceBatch($payload);
                 $skippedByQueueSku = [];
                 foreach ($result['skipped_items'] ?? [] as $skippedItem) {
-                    $skippedByQueueSku[(string) $skippedItem['queueSku']] = $skippedItem;
+                    $skippedByQueueSku[(string)$skippedItem['queueSku']] = $skippedItem;
                 }
                 $uploadedVendorCodeByQueueSku = [];
                 foreach ($result['items'] ?? [] as $uploadedItem) {
                     if (empty($uploadedItem['queueSku'])) {
                         continue;
                     }
-                    $uploadedVendorCodeByQueueSku[(string) $uploadedItem['queueSku']] = $uploadedItem['vendorCode'] ?? null;
+                    $uploadedVendorCodeByQueueSku[(string)$uploadedItem['queueSku']] = $uploadedItem['vendorCode'] ?? null;
                 }
 
                 foreach ($batchItems as $item) {
                     /** @var ProductQueue $product */
                     $product = $item['product'];
-                    $queueSku = (string) $product->sku;
-                    if (! isset($skippedByQueueSku[$queueSku])) {
+                    $queueSku = (string)$product->sku;
+                    if (!isset($skippedByQueueSku[$queueSku])) {
                         continue;
                     }
 
@@ -883,13 +883,13 @@ class CloneProductsJob implements ShouldQueue
                         $product->blocked = 1;
                         $product->save();
                         $this->logWarning(
-                            "Продукт {$product->sku} помещен в блокировку: {$skipError}. ".
-                                'Товар не отправлен в WB'
+                            "Продукт {$product->sku} помещен в блокировку: {$skipError}. " .
+                            'Товар не отправлен в WB'
                         );
                     } else {
                         $this->logWarning(
-                            "Пропуск продукта {$product->sku}: {$skipError}. ".
-                                'Товар не отправлен в WB и удален из очереди без блокировки'
+                            "Пропуск продукта {$product->sku}: {$skipError}. " .
+                            'Товар не отправлен в WB и удален из очереди без блокировки'
                         );
                         $product->delete();
                     }
@@ -900,7 +900,7 @@ class CloneProductsJob implements ShouldQueue
                         /** @var ProductQueue $product */
                         $product = $item['product'];
                         $info = $item['info'];
-                        if (isset($skippedByQueueSku[(string) $product->sku])) {
+                        if (isset($skippedByQueueSku[(string)$product->sku])) {
                             continue;
                         }
 
@@ -920,7 +920,7 @@ class CloneProductsJob implements ShouldQueue
                             'settings' => [
                                 'settings' => [
                                     'filter' => [
-                                        'textSearch' => $uploadedVendorCodeByQueueSku[(string) $product->sku] ?? $item['info']['vendor_code'],
+                                        'textSearch' => $uploadedVendorCodeByQueueSku[(string)$product->sku] ?? $item['info']['vendor_code'],
                                         'withPhoto' => -1,
                                     ],
                                 ],
@@ -933,15 +933,15 @@ class CloneProductsJob implements ShouldQueue
                 } else {
                     $err = $result['error'] ?? [];
                     $errorText = is_array($err)
-                        ? (string) ($err['errorText'] ?? $err['message'] ?? '')
-                        : (string) $err;
+                        ? (string)($err['errorText'] ?? $err['message'] ?? '')
+                        : (string)$err;
                     if ($errorText === '') {
                         $errorText = 'Неизвестная ошибка';
                     }
 
                     foreach ($batchItems as $item) {
                         $product = $item['product'];
-                        if (isset($skippedByQueueSku[(string) $product->sku])) {
+                        if (isset($skippedByQueueSku[(string)$product->sku])) {
                             continue;
                         }
                         $this->logWarning(
@@ -950,7 +950,7 @@ class CloneProductsJob implements ShouldQueue
                     }
 
                     $this->logInfo(
-                        'Ответ WB (batch failed): '.json_encode($result, JSON_UNESCAPED_UNICODE)
+                        'Ответ WB (batch failed): ' . json_encode($result, JSON_UNESCAPED_UNICODE)
                     );
                 }
             } catch (\Exception $e) {
@@ -958,7 +958,7 @@ class CloneProductsJob implements ShouldQueue
                     $product = $item['product'];
                     $product->blocked = 1;
                     $product->save();
-                    $this->logError("Критическая ошибка при обработке продукта {$product->sku}: ".$e->getMessage());
+                    $this->logError("Критическая ошибка при обработке продукта {$product->sku}: " . $e->getMessage());
                 }
             }
 
@@ -1010,7 +1010,7 @@ class CloneProductsJob implements ShouldQueue
      */
     private function restoreOrphanCardFromWbMatch(Cards $orphanCard, string $wbNmId, float $wbPrice): void
     {
-        $vendorCode = (string) $orphanCard->vendorCode;
+        $vendorCode = (string)$orphanCard->vendorCode;
         $orphanCard->sku = $wbNmId;
         $orphanCard->orphan_for_clone = false;
         $orphanCard->save();
@@ -1026,37 +1026,37 @@ class CloneProductsJob implements ShouldQueue
     /**
      * Карточка из выдачи категории WB: по nmID уточняем vendor_code и при необходимости восстанавливаем сироту магазина.
      *
-     * @param  array<string, mixed>  $productData
+     * @param array<string, mixed> $productData
      */
     private function tryRestoreOrphanFromWbCatalogProduct(array $productData, Sellers $seller): void
     {
-        if (! isset($productData['id'])) {
+        if (!isset($productData['id'])) {
             return;
         }
 
-        if (! empty($this->data['in_stock_only']) && ($productData['totalQuantity'] ?? 0) < 5) {
+        if (!empty($this->data['in_stock_only']) && ($productData['totalQuantity'] ?? 0) < 5) {
             return;
         }
 
-        $nmId = (string) $productData['id'];
+        $nmId = (string)$productData['id'];
         $price = 1.0;
         if (isset($productData['sizes'][0]['price']['product'])) {
-            $price = (float) $productData['sizes'][0]['price']['product'] / 100;
+            $price = (float)$productData['sizes'][0]['price']['product'] / 100;
         }
 
         try {
             $info = WBContent::getCardInfo($nmId);
         } catch (\Throwable $e) {
-            $this->logWarning("getCardInfo nmID {$nmId}: ".$e->getMessage());
+            $this->logWarning("getCardInfo nmID {$nmId}: " . $e->getMessage());
 
             return;
         }
 
-        if (! is_array($info)) {
+        if (!is_array($info)) {
             return;
         }
 
-        $vendorCode = isset($info['vendor_code']) ? (string) $info['vendor_code'] : '';
+        $vendorCode = isset($info['vendor_code']) ? (string)$info['vendor_code'] : '';
         if ($vendorCode === '') {
             return;
         }
@@ -1121,8 +1121,8 @@ class CloneProductsJob implements ShouldQueue
                 if ($wbTakenElsewhere) {
                     $other = SkuMapping::query()->where('wbSku', $wbSku)->first();
                     $this->logWarning(
-                        'ensureSkuMappingIfMissing: wbSku '.$wbSku.' уже занят строкой skuMapping id='.
-                        ($other->id ?? '?').', origSku='.($other->origSku ?? '')."; не меняем wbSku для origSku {$origSku}"
+                        'ensureSkuMappingIfMissing: wbSku ' . $wbSku . ' уже занят строкой skuMapping id=' .
+                        ($other->id ?? '?') . ', origSku=' . ($other->origSku ?? '') . "; не меняем wbSku для origSku {$origSku}"
                     );
                 } else {
                     $existing->wbSku = $wbSku;
@@ -1137,7 +1137,7 @@ class CloneProductsJob implements ShouldQueue
         }
 
         $rowByWb = SkuMapping::query()->where('wbSku', $wbSku)->first();
-        if ($rowByWb !== null && (string) $rowByWb->origSku !== (string) $origSku) {
+        if ($rowByWb !== null && (string)$rowByWb->origSku !== (string)$origSku) {
             $this->logWarning(
                 "ensureSkuMappingIfMissing: не создаём mapping для origSku {$origSku}: wbSku {$wbSku} уже привязан к origSku {$rowByWb->origSku} (skuMapping id={$rowByWb->id})"
             );
@@ -1152,11 +1152,11 @@ class CloneProductsJob implements ShouldQueue
                 'wbPrice' => $wbPrice,
             ]);
         } catch (QueryException $e) {
-            $sqlState = (string) $e->getCode();
-            if ($sqlState === '23000' || str_contains((string) $e->getMessage(), 'UNIQUE constraint failed')) {
+            $sqlState = (string)$e->getCode();
+            if ($sqlState === '23000' || str_contains((string)$e->getMessage(), 'UNIQUE constraint failed')) {
                 $this->logWarning(
-                    'ensureSkuMappingIfMissing: не удалось создать skuMapping (уникальность): origSku '.
-                    $origSku.', wbSku '.$wbSku.' — '.$e->getMessage()
+                    'ensureSkuMappingIfMissing: не удалось создать skuMapping (уникальность): origSku ' .
+                    $origSku . ', wbSku ' . $wbSku . ' — ' . $e->getMessage()
                 );
 
                 return false;

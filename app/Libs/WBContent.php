@@ -33,7 +33,7 @@ class WBContent
             ->acceptJson()
             ->get("https://card.wb.ru/cards/v4/detail?appType=1&curr=rub&dest=-1129907&lang=ru&nm={$nmId}");
         $result = $result->json();
-        if (! isset($result['products'][0])) {
+        if (!isset($result['products'][0])) {
             return null;
         }
         if ($first) {
@@ -46,7 +46,7 @@ class WBContent
     public static function getAmounts(string $nmIds): array|false
     {
         $response = self::getDetail($nmIds, false);
-        if (! is_array($response) || ! isset($response['products'])) {
+        if (!is_array($response) || !isset($response['products'])) {
             return false;
         }
 
@@ -61,7 +61,7 @@ class WBContent
     private static function calcAmount(array $productDetail): int
     {
         $amount = 0;
-        if (! empty($productDetail['totalQuantity'])) {
+        if (!empty($productDetail['totalQuantity'])) {
             $amount = $productDetail['totalQuantity'];
         }
 
@@ -71,7 +71,7 @@ class WBContent
     public static function getAmount(int $nmId): int
     {
         $response = self::getDetail($nmId);
-        if (! isset($response['sizes'])) {
+        if (!isset($response['sizes'])) {
             return 0;
         }
 
@@ -82,8 +82,8 @@ class WBContent
     {
         $response = self::getDetail($nmId);
         if (isset($response['products'][0]['sizes'][0]['price'])) {
-            if (! empty($price = $response['products'][0]['sizes'][0]['price']['product'])) {
-                return (int) $price / 100;
+            if (!empty($price = $response['products'][0]['sizes'][0]['price']['product'])) {
+                return (int)$price / 100;
             }
         }
 
@@ -106,7 +106,7 @@ class WBContent
      */
     public static function getPagesProductsByCategory($supplierId, $categoryId, $page = 1)
     {
-        $page = max(1, (int) $page);
+        $page = max(1, (int)$page);
         $base = 'https://catalog.wb.ru/sellers/v4/catalog?ab_testing=false&appType=1&curr=rub&dest=-431464&lang=ru&sort=popular&spp=30&uclusters=4';
         $query = http_build_query([
             'supplier' => $supplierId,
@@ -117,9 +117,9 @@ class WBContent
             ->timeout(180)
             ->connectTimeout(180)
             ->acceptJson()
-            ->get($base.'&'.$query);
+            ->get($base . '&' . $query);
 
-        if (! $response->successful()) {
+        if (!$response->successful()) {
             return null;
         }
 
@@ -161,7 +161,7 @@ class WBContent
                 $json = $response->successful() ? $response->json() : null;
                 if (is_array($json)) {
                     $last = $json;
-                    $vc = trim((string) ($json['vendor_code'] ?? ''));
+                    $vc = trim((string)($json['vendor_code'] ?? ''));
                     if ($vc !== '' || isset($json['id']) || isset($json['imt_name']) || isset($json['media'])) {
                         return $json;
                     }
@@ -182,11 +182,11 @@ class WBContent
      */
     public static function extractVendorCodeFromDetailProduct(?array $product): string
     {
-        if (! is_array($product)) {
+        if (!is_array($product)) {
             return '';
         }
         foreach (['vendorCode', 'supplierVendorCode', 'vendor_code'] as $k) {
-            $v = trim((string) ($product[$k] ?? ''));
+            $v = trim((string)($product[$k] ?? ''));
             if ($v !== '') {
                 return $v;
             }
@@ -194,11 +194,11 @@ class WBContent
         $sizes = $product['sizes'] ?? [];
         if (is_array($sizes)) {
             foreach ($sizes as $sz) {
-                if (! is_array($sz)) {
+                if (!is_array($sz)) {
                     continue;
                 }
                 foreach (['vendorCode', 'supplierVendorCode'] as $k) {
-                    $v = trim((string) ($sz[$k] ?? ''));
+                    $v = trim((string)($sz[$k] ?? ''));
                     if ($v !== '') {
                         return $v;
                     }
