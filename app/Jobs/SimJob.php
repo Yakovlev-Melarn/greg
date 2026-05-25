@@ -3,11 +3,13 @@
 namespace App\Jobs;
 
 use App\Models\SkuMapping;
+use App\Services\SimaUnmappedSkuCleanup;
 use App\Services\SimService;
 use App\Services\SkuPriceRecalculationService;
 use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\InteractsWithQueue;
@@ -44,8 +46,9 @@ class SimJob implements ShouldQueue
 
     private function calcPrice($params): array
     {
+        $origSid = (string) ($params['sid'] ?? '');
+
         try {
-            $origSid = (string) ($params['sid'] ?? '');
             $sidCandidates = SimService::normalizeSidCandidates($origSid);
             $sid = $sidCandidates[0] ?? '';
             if ($sid === '') {
@@ -99,15 +102,46 @@ class SimJob implements ShouldQueue
                 'weight_kg' => round($item['weight'] / 1000, 2),
             ], $priceBlock, $dimensions);
             echo "🔄 Обновление или создание записи\n";
-            SkuMapping::updateOrCreate(
-                ['origSku' => $origSid],
-                array_merge($data, ['blocked' => false])
-            );
+            $cleanup = new SimaUnmappedSkuCleanup;
+            $mapping = $cleanup->findMappingBySid($origSid);
+            if (! $cleanup->mappingHasWbSku($mapping)) {
+                $purged = $cleanup->purgeByOrigSku($origSid);
+                $keysHint = implode(', ', $purged['keys']);
+                echo "🗑️ origSku {$origSid}: нет wbSku (ключи: {$keysHint}) — удалено карточек Sima: {$purged['cards_deleted']}, "
+                    ."строк skuMapping: {$purged['mapping_deleted']}\n";
+
+                return [
+                    'purged' => true,
+                    'reason' => 'no_wb_sku',
+                    'cards_deleted' => $purged['cards_deleted'],
+                    'mapping_deleted' => $purged['mapping_deleted'],
+                ];
+            }
+
+            $mapping->fill(array_merge($data, ['blocked' => false]));
+            $mapping->save();
             echo "✅ Джоба успешно завершена\n";
         } catch (ConnectionException $e) {
             // Temporary API/network issue: rethrow to let queue retry.
             echo '🌐 Временная ошибка соединения: '.$e->getMessage()."\n";
             throw $e;
+        } catch (QueryException $e) {
+            if ($this->isMissingWbSkuConstraintViolation($e)) {
+                $purged = (new SimaUnmappedSkuCleanup)->purgeByOrigSku($origSid);
+                echo "🗑️ origSku {$origSid}: ошибка NOT NULL wbSku — удалено карточек Sima: {$purged['cards_deleted']}, "
+                    ."строк skuMapping: {$purged['mapping_deleted']}\n";
+
+                return [
+                    'purged' => true,
+                    'reason' => 'no_wb_sku',
+                    'cards_deleted' => $purged['cards_deleted'],
+                    'mapping_deleted' => $purged['mapping_deleted'],
+                ];
+            }
+
+            echo '🚨 Произошла ошибка: '.$e->getMessage()."\n";
+
+            return $this->handleError($e);
         } catch (Exception $e) {
             echo '🚨 Произошла ошибка: '.$e->getMessage()."\n";
             if ($e->getMessage() === 'Invalid API response format') {
@@ -141,6 +175,14 @@ class SimJob implements ShouldQueue
     /**
      * Ошибки Sima-Land / размеров, после которых повторный calcPrice бессмысленен до ручного разбора.
      */
+    private function isMissingWbSkuConstraintViolation(QueryException $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_contains($message, 'skuMapping.wbSku')
+            || str_contains($message, 'NOT NULL constraint failed: skuMapping.wbSku');
+    }
+
     private function isPermanentCalcPriceFailure(Exception $e): bool
     {
         $msg = $e->getMessage();

@@ -127,22 +127,21 @@ class SimaSupplierAuditServiceTest extends TestCase
         $this->assertSame(20, (int) $card->fresh()->supplier);
     }
 
-    #[TestDox('Нет SkuMapping — missing_mapping без user_blocked')]
-    public function test_missing_mapping_dispatches_without_user_blocked(): void
+    #[TestDox('Нет SkuMapping / wbSku — удаление карточек Sima')]
+    public function test_missing_mapping_purges_sima_cards(): void
     {
-        \Illuminate\Support\Facades\Queue::fake();
-
         $seller = new Sellers;
         $seller->name = 'S';
         $seller->wb_api_key = 'k';
         $seller->save();
 
+        $vendorCode = '999888';
         $card = Cards::query()->create([
             'sellerID' => $seller->id,
             'supplier' => 20,
             'supplierName' => 'Sima-Land',
             'supplierVendorCode' => 'LC-S-1-1',
-            'vendorCode' => '999888',
+            'vendorCode' => $vendorCode,
             'productName' => 'X',
             'nmID' => 1,
         ]);
@@ -152,6 +151,7 @@ class SimaSupplierAuditServiceTest extends TestCase
         $result = $service->processCard($card, $seller);
 
         $this->assertSame(SimaSupplierAuditService::OUTCOME_MISSING_MAPPING, $result->outcome);
-        $this->assertFalse($result->markMappingProcessed);
+        $this->assertTrue($result->markMappingProcessed);
+        $this->assertDatabaseMissing('cards', ['id' => $card->id]);
     }
 }

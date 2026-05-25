@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\DTO\SimaSupplierAuditCardResult;
 use App\Exceptions\SimaSupplierAuditWbException;
-use App\Jobs\SimJob;
 use App\Libs\WBContent;
 use App\Models\Cards;
 use App\Models\Sellers;
@@ -58,15 +57,19 @@ class SimaSupplierAuditService
             );
         }
 
-        $mapping = SkuMapping::query()->where('origSku', $vendorCode)->first();
-        if ($mapping === null) {
-            SimJob::dispatch('calcPrice', ['sid' => $vendorCode])->onQueue('updateCardsProcess');
+        $cleanup = new SimaUnmappedSkuCleanup;
+        $mapping = $cleanup->findMappingForCard($card);
+        if (! $cleanup->mappingHasWbSku($mapping)) {
+            $purged = $cleanup->purgeForCard($card);
+            $keysHint = $purged['keys'] !== [] ? implode(', ', $purged['keys']) : $vendorCode;
+            $reason = $mapping === null ? 'нет строки skuMapping' : 'в skuMapping нет wbSku';
 
             return new SimaSupplierAuditCardResult(
                 self::OUTCOME_MISSING_MAPPING,
-                "⚠️ card_id={$card->id} vendor={$vendorCode}: нет SkuMapping, поставлен SimJob calcPrice",
+                "🗑️ card_id={$card->id} vendor={$vendorCode} ({$reason}, ключи: {$keysHint}) — "
+                ."удалено карточек Sima: {$purged['cards_deleted']}, строк mapping: {$purged['mapping_deleted']}",
                 ['missing_mapping' => 1],
-                markMappingProcessed: false,
+                markMappingProcessed: true,
             );
         }
 
