@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\ProductQueue;
 use App\Models\Sellers;
 use App\Models\SkuMapping;
+use App\Services\SimCalcPriceEligibility;
 use App\Models\Supplier;
 use App\Services\WildberriesService;
 use Illuminate\Bus\Queueable;
@@ -1020,7 +1021,9 @@ class CloneProductsJob implements ShouldQueue
             $this->logInfo("SkuMapping восстановлена: origSku={$vendorCode}, wbSku={$wbNmId}");
         }
 
-        SimJob::dispatch('calcPrice', ['sid' => $vendorCode])->onQueue('updateCardsProcess');
+        if ((new SimCalcPriceEligibility)->shouldRunCalcPrice($vendorCode)) {
+            SimJob::dispatch('calcPrice', ['sid' => $vendorCode])->onQueue('updateCardsProcess');
+        }
     }
 
     /**

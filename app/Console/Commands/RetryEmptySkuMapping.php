@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\SimJob;
 use App\Models\SkuMapping;
+use App\Services\SimCalcPriceEligibility;
 use Illuminate\Console\Command;
 
 class RetryEmptySkuMapping extends Command
@@ -23,6 +24,9 @@ class RetryEmptySkuMapping extends Command
             ->where(function ($q) {
                 $q->where('blocked', false)->orWhereNull('blocked');
             })
+            ->where(function ($q) {
+                $q->where('user_blocked', false)->orWhereNull('user_blocked');
+            })
             ->where('created_at', '<=', $cutoff)
             ->orderBy('id')
             ->limit($limit)
@@ -34,9 +38,17 @@ class RetryEmptySkuMapping extends Command
             return self::SUCCESS;
         }
 
+        $eligibility = new SimCalcPriceEligibility;
         $queued = 0;
+        $skippedWb = 0;
         foreach ($rows as $row) {
             if (empty($row->origSku)) {
+                continue;
+            }
+
+            if (! $eligibility->shouldRunCalcPrice((string) $row->origSku)) {
+                $skippedWb++;
+
                 continue;
             }
 
@@ -44,7 +56,7 @@ class RetryEmptySkuMapping extends Command
             $queued++;
         }
 
-        $this->info("Queued {$queued} calcPrice jobs for empty skuMapping rows.");
+        $this->info("Queued {$queued} calcPrice jobs for empty skuMapping rows (skipped WB supplier: {$skippedWb}).");
 
         return self::SUCCESS;
     }

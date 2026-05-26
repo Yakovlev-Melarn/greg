@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\SkuMapping;
+use App\Services\SimCalcPriceEligibility;
 use App\Services\SimaUnmappedSkuCleanup;
 use App\Services\SimService;
 use App\Services\SkuPriceRecalculationService;
@@ -55,6 +56,12 @@ class SimJob implements ShouldQueue
                 echo "❌ calcPrice: не указан sid\n";
 
                 return ['error' => 'missing_sid'];
+            }
+
+            if (! (new SimCalcPriceEligibility)->shouldRunCalcPrice($origSid)) {
+                echo "⏭️ origSku {$sid}: карточка WB (supplier=10), calcPrice пропущен\n";
+
+                return ['skipped' => true, 'reason' => 'wb_supplier'];
             }
 
             $prior = SkuMapping::query()->where('origSku', $origSid)->first();
